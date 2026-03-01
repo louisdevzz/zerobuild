@@ -53,7 +53,7 @@ ZeroBuild is **the autonomous build engine** that turns your ideas into working 
 - 🏗️ **Plan-before-build workflow** — Agent proposes a structured plan; you confirm before any code is written
 - 🔒 **Isolated sandboxes** — Every build runs in an isolated local process sandbox; host credentials and filesystem stay untouched
 - 🌐 **Live preview URLs** — Get public HTTPS links to running web apps
-- 🚀 **GitHub connector** — Connect your GitHub account via OAuth to create repos, push code, open issues, and manage PRs — all from chat
+- 🚀 **GitHub connector** — Connect your GitHub account via OAuth to create repos, push code, open issues, manage PRs, and post inline code reviews — all from chat
 - 🧠 **Intelligent model routing** — Automatic model recommendations based on task type
 - 💬 **Multi-channel support** — Use Telegram, Discord, Slack, or CLI — your choice
 
@@ -139,11 +139,11 @@ Local Process Sandbox             ← Isolated Build Environment
 |---|:---:|:---:|:---:|:---:|:---:|
 | **What you can build** | Anything | Web only | Web only | Web only | Anything |
 | **Interface** | Any channel | Web | Web | Web | CLI only |
-| **Sandbox** | E2B/Docker | StackBlitz | Own cloud | Vercel | Docker |
+| **Sandbox** | Local process (no API key, no Docker) | StackBlitz | Own cloud | Vercel | Docker |
 | **Open Source** | ✅ Yes | ❌ No | ❌ No | ❌ No | ✅ Yes |
 | **Self-Hostable** | ✅ Yes | ❌ No | ❌ No | ❌ No | ✅ Yes |
 | **Runtime** | Rust (<10MB) | Cloud | Cloud | Cloud | Node.js |
-| **Connectors (GitHub)** | ✅ Full (repos, issues, PRs, push) | ❌ No | ❌ No | ❌ No | Manual |
+| **Connectors (GitHub)** | ✅ Full (repos, issues, PRs, inline review, push) | ❌ No | ❌ No | ❌ No | Manual |
 
 ---
 

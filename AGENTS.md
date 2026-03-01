@@ -160,11 +160,12 @@ Inherited from ZeroBuild — mandatory. These are implementation constraints, no
 
 ### 5.1 Sandbox tool workflow
 
-The ZeroBuild Agent uses these 10 sandbox tools to build projects:
+The ZeroBuild Agent uses these sandbox tools to build projects:
 
 | Tool | Purpose |
 |------|---------|
 | `sandbox_create` | Create/resume local sandbox (reset=true to start fresh) |
+| `github_read_repo` | Read all text files from an existing GitHub repo into sandbox (for bug-fix workflows) |
 | `sandbox_run_command` | Run shell commands (npm, npx, node, cargo, python, etc.) IN SANDBOX |
 | `sandbox_write_file` | Write file content to sandbox path |
 | `sandbox_read_file` | Read file content from sandbox path |
@@ -306,7 +307,8 @@ When a user message contains one of these hashtags or trigger phrases, you MUST 
 | Hashtag / Trigger | Workflow | Primary tools | Do NOT use |
 |---|---|---|---|
 | `#issue` / `#issues` / `#bug` / "create issue" / "file issue" / "report bug" | Create GitHub issue | `github_create_issue` | `glob_search`, `file_read` |
-| `#pr` / `#review` / "create PR" / "open PR" / "submit PR" | Create or review PR | `github_create_pr`, `github_review_pr` | `file_write`, `shell` |
+| `#pr` / "create PR" / "open PR" / "submit PR" | Create PR | `github_create_pr` | `file_write`, `shell` |
+| `#review` / "review PR" / "inline review" / "code review" | Review PR with inline comments | `github_get_pr` → `github_get_pr_diff` → `github_post_inline_comments` | `file_write`, `shell` |
 | `#feature` / "new feature" / "feature request" | Create feature issue | `github_create_issue` + `github_push` | `task_plan` (alone) |
 | `#deploy` / `#push` / "deploy" / "push to github" | Push code to GitHub | `github_push` | `sandbox_write_file` |
 | `#build` / "build" / "compile" | Build in sandbox | Sandbox tool workflow (section 5.1) | `shell` (local) |
@@ -429,6 +431,36 @@ This closes the loop — every completed deploy ends with actionable next steps.
 
 This prevents silent infinite retry loops and gives users a way to intervene.
 
+### 5.13 Bug Fix Workflow (existing repo)
+
+Use this workflow when the user asks to fix a bug in an existing GitHub repository.
+
+**Required tools in order:**
+
+1. `github_connect` — confirm GitHub authentication
+2. `sandbox_create` (reset=false — clean sandbox, no existing files)
+3. `github_read_repo` (owner, repo, branch="main", workdir="project") — fetch all repo files into sandbox
+4. `sandbox_read_file` / `sandbox_list_files` — inspect the file(s) related to the bug
+5. `sandbox_write_file` — apply the fix
+6. `sandbox_run_command` — verify the fix (build, tests, lint)
+7. `sandbox_save_snapshot` — persist the fixed state
+8. `github_push` (branch="fix/<short-description>") — push to a new branch
+9. `github_create_pr` — open a PR describing the bug and fix
+
+**Progress messages (REQUIRED):**
+
+| Tool call | User message |
+|---|---|
+| `github_read_repo` | "Reading repository files..." |
+| `sandbox_run_command { verify }` | "Verifying the fix..." |
+| `github_push` | "Pushing fix branch to GitHub..." |
+| `github_create_pr` | "Opening pull request..." |
+
+**Rules:**
+- Always push to a new branch (never directly to main/master).
+- PR title must follow `[Bug]: <description>` format per section 5.10.
+- If `github_read_repo` skips more files than it writes, warn the user and confirm the fix scope before pushing.
+
 ---
 
 ## 6) Risk Tiers by Path
@@ -523,6 +555,32 @@ When handing off work, include:
 3. Validation run and results
 4. Remaining risks / unknowns
 5. Next recommended action
+
+### 5.14 PR Code Review Workflow (inline comments)
+
+Use this workflow when the user asks to review a pull request with inline code comments (CodeRabbit-style).
+
+**Required tools in order:**
+
+1. `github_get_pr` → obtain `head.sha` (commit_id), title, and PR metadata
+2. `github_get_pr_diff` → read the file-by-file diff (filename, status, patch text)
+3. [Agent analyzes diff — generates overall summary and inline comments per file/line]
+4. `github_post_inline_comments` → post the review with inline comments
+
+**Rules:**
+- Only comment on lines that belong to added or modified hunks (lines that exist in the new file).
+- Use `event = COMMENT` for neutral observations; `REQUEST_CHANGES` when a fix is required; `APPROVE` only when the PR is clean.
+- Skip binary files and files without a `patch` field (shown as `[binary or too large to show]`).
+- The `commit_id` passed to `github_post_inline_comments` must come from `github_get_pr` (`head.sha`), not be guessed.
+- Keep inline comment bodies concise and actionable.
+
+**Progress messages (REQUIRED):**
+
+| Step | User message |
+|---|---|
+| `github_get_pr` | "Fetching PR metadata..." |
+| `github_get_pr_diff` | "Reading PR diff..." |
+| `github_post_inline_comments` | "Posting review comments..." |
 
 ---
 

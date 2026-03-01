@@ -2259,6 +2259,309 @@ impl Tool for GitHubCloseIssueTool {
     }
 }
 
+// ── github_get_pr_diff ────────────────────────────────────────────────────────
+
+pub struct GitHubGetPRDiffTool {
+    config: Arc<ZerobuildConfig>,
+}
+
+impl GitHubGetPRDiffTool {
+    pub fn new(config: Arc<ZerobuildConfig>) -> Self {
+        Self { config }
+    }
+}
+
+#[async_trait]
+impl Tool for GitHubGetPRDiffTool {
+    fn name(&self) -> &str {
+        "github_get_pr_diff"
+    }
+
+    fn description(&self) -> &str {
+        "Fetch the file-by-file diff of a GitHub pull request. \
+         Returns each changed file's filename, status, additions/deletions, and patch text. \
+         Use this before posting inline review comments."
+    }
+
+    fn parameters_schema(&self) -> serde_json::Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "repo": {
+                    "type": "string",
+                    "description": "Repository name (e.g. my-app)"
+                },
+                "owner": {
+                    "type": "string",
+                    "description": "Repository owner (GitHub username or org). Defaults to the authenticated user."
+                },
+                "pr_number": {
+                    "type": "integer",
+                    "description": "Pull request number"
+                }
+            },
+            "required": ["repo", "pr_number"]
+        })
+    }
+
+    async fn execute(&self, args: serde_json::Value) -> anyhow::Result<ToolResult> {
+        let db_path = PathBuf::from(&self.config.db_path);
+        let tok = match load_token(&db_path) {
+            Ok(t) => t,
+            Err(e) => return Ok(e),
+        };
+        let repo = args["repo"].as_str().unwrap_or("").trim().to_string();
+        let pr_number = match args["pr_number"].as_u64() {
+            Some(n) => n,
+            None => {
+                return Ok(ToolResult {
+                    success: false,
+                    output: String::new(),
+                    error: Some("pr_number is required".to_string()),
+                    error_hint: None,
+                });
+            }
+        };
+        if repo.is_empty() {
+            return Ok(ToolResult {
+                success: false,
+                output: String::new(),
+                error: Some("repo is required".to_string()),
+                error_hint: None,
+            });
+        }
+        let owner = match resolve_owner(&args, tok.username.as_deref()) {
+            Ok(o) => o,
+            Err(e) => return Ok(e),
+        };
+
+        let url =
+            format!("{GITHUB_API_BASE}/repos/{owner}/{repo}/pulls/{pr_number}/files?per_page=100");
+        let result = github_get(&tok.token, &url).await?;
+        if !result.success {
+            return Ok(result);
+        }
+
+        let files: Vec<serde_json::Value> =
+            serde_json::from_str(&result.output).unwrap_or_default();
+
+        const MAX_FILES: usize = 50;
+        let truncated = files.len() > MAX_FILES;
+        let shown = &files[..files.len().min(MAX_FILES)];
+
+        let mut parts: Vec<String> = Vec::with_capacity(shown.len());
+        for file in shown {
+            let filename = file["filename"].as_str().unwrap_or("<unknown>");
+            let status = file["status"].as_str().unwrap_or("modified");
+            let additions = file["additions"].as_u64().unwrap_or(0);
+            let deletions = file["deletions"].as_u64().unwrap_or(0);
+            let header = format!("=== {filename} [{status}] (+{additions} / -{deletions}) ===");
+            let patch = match file["patch"].as_str() {
+                Some(p) => p.to_string(),
+                None => "[binary or too large to show]".to_string(),
+            };
+            parts.push(format!("{header}\n{patch}"));
+        }
+
+        let mut output = parts.join("\n\n");
+        if truncated {
+            output.push_str(&format!(
+                "\n\n[WARNING: diff truncated — showing first {MAX_FILES} of {} files]",
+                files.len()
+            ));
+        }
+
+        Ok(ToolResult {
+            success: true,
+            output,
+            error: None,
+            error_hint: None,
+        })
+    }
+}
+
+// ── github_post_inline_comments ───────────────────────────────────────────────
+
+pub struct GitHubPostInlineCommentsTool {
+    config: Arc<ZerobuildConfig>,
+}
+
+impl GitHubPostInlineCommentsTool {
+    pub fn new(config: Arc<ZerobuildConfig>) -> Self {
+        Self { config }
+    }
+}
+
+#[async_trait]
+impl Tool for GitHubPostInlineCommentsTool {
+    fn name(&self) -> &str {
+        "github_post_inline_comments"
+    }
+
+    fn description(&self) -> &str {
+        "Post a pull request review with inline comments on specific lines. \
+         Use github_get_pr to obtain the commit_id (head.sha) and \
+         github_get_pr_diff to identify the file paths and line numbers to comment on."
+    }
+
+    fn parameters_schema(&self) -> serde_json::Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "repo": {
+                    "type": "string",
+                    "description": "Repository name (e.g. my-app)"
+                },
+                "owner": {
+                    "type": "string",
+                    "description": "Repository owner (GitHub username or org). Defaults to the authenticated user."
+                },
+                "pr_number": {
+                    "type": "integer",
+                    "description": "Pull request number"
+                },
+                "commit_id": {
+                    "type": "string",
+                    "description": "Head commit SHA of the PR (from github_get_pr head.sha)"
+                },
+                "body": {
+                    "type": "string",
+                    "description": "Overall review summary comment"
+                },
+                "event": {
+                    "type": "string",
+                    "enum": ["APPROVE", "REQUEST_CHANGES", "COMMENT"],
+                    "description": "Review event type: APPROVE, REQUEST_CHANGES, or COMMENT"
+                },
+                "comments": {
+                    "type": "array",
+                    "description": "Inline comments to post on specific lines",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "path": {
+                                "type": "string",
+                                "description": "File path relative to repository root"
+                            },
+                            "line": {
+                                "type": "integer",
+                                "description": "Line number in the new version of the file"
+                            },
+                            "body": {
+                                "type": "string",
+                                "description": "Comment text"
+                            }
+                        },
+                        "required": ["path", "line", "body"]
+                    }
+                }
+            },
+            "required": ["repo", "pr_number", "commit_id", "body", "event"]
+        })
+    }
+
+    async fn execute(&self, args: serde_json::Value) -> anyhow::Result<ToolResult> {
+        let db_path = PathBuf::from(&self.config.db_path);
+        let tok = match load_token(&db_path) {
+            Ok(t) => t,
+            Err(e) => return Ok(e),
+        };
+        let repo = args["repo"].as_str().unwrap_or("").trim().to_string();
+        let pr_number = match args["pr_number"].as_u64() {
+            Some(n) => n,
+            None => {
+                return Ok(ToolResult {
+                    success: false,
+                    output: String::new(),
+                    error: Some("pr_number is required".to_string()),
+                    error_hint: None,
+                });
+            }
+        };
+        let commit_id = args["commit_id"].as_str().unwrap_or("").trim().to_string();
+        let body = args["body"].as_str().unwrap_or("").to_string();
+        let event = args["event"].as_str().unwrap_or("COMMENT").to_string();
+
+        if repo.is_empty() {
+            return Ok(ToolResult {
+                success: false,
+                output: String::new(),
+                error: Some("repo is required".to_string()),
+                error_hint: None,
+            });
+        }
+        if commit_id.is_empty() {
+            return Ok(ToolResult {
+                success: false,
+                output: String::new(),
+                error: Some(
+                    "commit_id is required — use github_get_pr to obtain head.sha".to_string(),
+                ),
+                error_hint: None,
+            });
+        }
+        let valid_events = ["APPROVE", "REQUEST_CHANGES", "COMMENT"];
+        if !valid_events.contains(&event.as_str()) {
+            return Ok(ToolResult {
+                success: false,
+                output: String::new(),
+                error: Some(format!("event must be one of: {}", valid_events.join(", "))),
+                error_hint: None,
+            });
+        }
+
+        let owner = match resolve_owner(&args, tok.username.as_deref()) {
+            Ok(o) => o,
+            Err(e) => return Ok(e),
+        };
+
+        // Build inline comment objects with side: RIGHT (new-file line numbers)
+        let inline_comments: Vec<serde_json::Value> = args["comments"]
+            .as_array()
+            .unwrap_or(&vec![])
+            .iter()
+            .filter_map(|c| {
+                let path = c["path"].as_str()?;
+                let line = c["line"].as_u64()?;
+                let comment_body = c["body"].as_str()?;
+                Some(json!({
+                    "path": path,
+                    "line": line,
+                    "side": "RIGHT",
+                    "body": comment_body
+                }))
+            })
+            .collect();
+
+        let n_comments = inline_comments.len();
+        let payload = json!({
+            "commit_id": commit_id,
+            "body": body,
+            "event": event,
+            "comments": inline_comments
+        });
+
+        let url = format!("{GITHUB_API_BASE}/repos/{owner}/{repo}/pulls/{pr_number}/reviews");
+        let result = github_post_api(&tok.token, &url, payload).await?;
+        if !result.success {
+            return Ok(result);
+        }
+
+        let parsed: serde_json::Value = serde_json::from_str(&result.output).unwrap_or_default();
+        let review_id = parsed["id"].as_u64().unwrap_or(0);
+        let state = parsed["state"].as_str().unwrap_or(&event);
+
+        Ok(ToolResult {
+            success: true,
+            output: format!(
+                "Review #{review_id} posted ({state}) with {n_comments} inline comments on PR #{pr_number}"
+            ),
+            error: None,
+            error_hint: None,
+        })
+    }
+}
+
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]

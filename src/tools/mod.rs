@@ -34,6 +34,7 @@ pub mod file_write;
 pub mod git_operations;
 pub mod github_ops;
 pub mod github_push;
+pub mod github_read_repo;
 pub mod glob_search;
 pub mod hardware_board_info;
 pub mod hardware_memory_map;
@@ -80,10 +81,12 @@ pub use git_operations::GitOperationsTool;
 pub use github_ops::{
     GitHubAnalyzePRTool, GitHubCloseIssueTool, GitHubConnectTool, GitHubCreateIssueTool,
     GitHubCreateIssueWithHashtagsTool, GitHubCreatePRTool, GitHubEditIssueTool, GitHubGetIssueTool,
-    GitHubGetPRTool, GitHubListIssuesTool, GitHubListPRsTool, GitHubListReposTool,
-    GitHubReviewPRTool, GitHubReviewPRWithChecklistTool, GitHubUploadImageTool,
+    GitHubGetPRDiffTool, GitHubGetPRTool, GitHubListIssuesTool, GitHubListPRsTool,
+    GitHubListReposTool, GitHubPostInlineCommentsTool, GitHubReviewPRTool,
+    GitHubReviewPRWithChecklistTool, GitHubUploadImageTool,
 };
 pub use github_push::GitHubPushTool;
+pub use github_read_repo::GitHubReadRepoTool;
 pub use glob_search::GlobSearchTool;
 #[allow(unused_imports)]
 pub use hardware_board_info::HardwareBoardInfoTool;
@@ -227,6 +230,10 @@ pub fn sandbox_tools(
             sandbox.clone(),
             db_path.clone(),
         )),
+        Box::new(GitHubReadRepoTool::new(
+            sandbox.clone(),
+            zerobuild_config.clone(),
+        )),
         Box::new(SandboxKillTool::new(sandbox)),
         Box::new(GitHubPushTool::new(zerobuild_config.clone())),
         Box::new(GitHubCreateIssueTool::new(zerobuild_config.clone())),
@@ -246,6 +253,8 @@ pub fn sandbox_tools(
         Box::new(GitHubGetIssueTool::new(zerobuild_config.clone())),
         Box::new(GitHubGetPRTool::new(zerobuild_config.clone())),
         Box::new(GitHubAnalyzePRTool::new(zerobuild_config.clone())),
+        Box::new(GitHubGetPRDiffTool::new(zerobuild_config.clone())),
+        Box::new(GitHubPostInlineCommentsTool::new(zerobuild_config.clone())),
         Box::new(GitHubUploadImageTool::new(zerobuild_config.clone())),
         Box::new(GitHubConnectTool::new(zerobuild_config)),
     ]

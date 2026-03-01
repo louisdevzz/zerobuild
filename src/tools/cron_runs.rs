@@ -55,6 +55,7 @@ impl Tool for CronRunsTool {
             return Ok(ToolResult {
                 success: false,
                 output: String::new(),
+                error_hint: None,
                 error: Some("cron is disabled by config (cron.enabled=false)".to_string()),
             });
         }
@@ -65,6 +66,7 @@ impl Tool for CronRunsTool {
                 return Ok(ToolResult {
                     success: false,
                     output: String::new(),
+                    error_hint: None,
                     error: Some("Missing 'job_id' parameter".to_string()),
                 });
             }
@@ -93,12 +95,14 @@ impl Tool for CronRunsTool {
                 Ok(ToolResult {
                     success: true,
                     output: serde_json::to_string_pretty(&runs)?,
+                    error_hint: None,
                     error: None,
                 })
             }
             Err(e) => Ok(ToolResult {
                 success: false,
                 output: String::new(),
+                error_hint: None,
                 error: Some(e.to_string()),
             }),
         }

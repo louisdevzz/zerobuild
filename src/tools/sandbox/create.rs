@@ -65,6 +65,7 @@ impl Tool for SandboxCreateTool {
                         "Reusing existing sandbox.\nsandbox_id: {existing_id}\nstatus: running"
                     ),
                     error: None,
+                    error_hint: None,
                 });
             }
         }
@@ -81,11 +82,13 @@ impl Tool for SandboxCreateTool {
                     self.template
                 ),
                 error: None,
+                error_hint: None,
             }),
             Err(e) => Ok(ToolResult {
                 success: false,
                 output: String::new(),
                 error: Some(format!("Failed to create sandbox: {e}")),
+                error_hint: None,
             }),
         }
     }

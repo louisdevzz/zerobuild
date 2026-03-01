@@ -105,6 +105,7 @@ impl ManageAuthProfileTool {
             success: true,
             output,
             error: None,
+            error_hint: None,
         })
     }
 
@@ -116,6 +117,7 @@ impl ManageAuthProfileTool {
             success: true,
             output: format!("Switched active profile for {provider} to: {profile_id}"),
             error: None,
+            error_hint: None,
         })
     }
 
@@ -132,6 +134,7 @@ impl ManageAuthProfileTool {
                         success: false,
                         output: String::new(),
                         error: Some(format!("OpenAI token refresh failed: {e}")),
+                        error_hint: None,
                     })
                 }
             },
@@ -143,6 +146,7 @@ impl ManageAuthProfileTool {
                         success: false,
                         output: String::new(),
                         error: Some(format!("Gemini token refresh failed: {e}")),
+                        error_hint: None,
                     })
                 }
             },
@@ -155,6 +159,7 @@ impl ManageAuthProfileTool {
                         success: false,
                         output: String::new(),
                         error: Some(format!("Token check failed for '{other}': {e}")),
+                        error_hint: None,
                     }),
                 }
             }
@@ -164,6 +169,7 @@ impl ManageAuthProfileTool {
             success: true,
             output: result,
             error: None,
+            error_hint: None,
         })
     }
 }
@@ -218,6 +224,7 @@ impl Tool for ManageAuthProfileTool {
                         success: false,
                         output: String::new(),
                         error: Some("'provider' is required for switch action".into()),
+                        error_hint: None,
                     });
                 };
                 let profile = args
@@ -232,6 +239,7 @@ impl Tool for ManageAuthProfileTool {
                         success: false,
                         output: String::new(),
                         error: Some("'provider' is required for refresh action".into()),
+                        error_hint: None,
                     });
                 };
                 self.handle_refresh(provider).await
@@ -242,6 +250,7 @@ impl Tool for ManageAuthProfileTool {
                 error: Some(format!(
                     "Unknown action '{other}'. Valid: list, switch, refresh"
                 )),
+                error_hint: None,
             }),
         };
 
@@ -251,6 +260,7 @@ impl Tool for ManageAuthProfileTool {
                 success: false,
                 output: String::new(),
                 error: Some(e.to_string()),
+                error_hint: None,
             }),
         }
     }

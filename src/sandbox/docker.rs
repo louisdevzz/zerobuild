@@ -214,9 +214,8 @@ impl SandboxClient for DockerSandboxClient {
         let mut stdout_buf = String::new();
         let mut stderr_buf = String::new();
 
-        let start_result = tokio::time::timeout(
-            std::time::Duration::from_millis(timeout_ms),
-            async {
+        let start_result =
+            tokio::time::timeout(std::time::Duration::from_millis(timeout_ms), async {
                 match self
                     .docker
                     .start_exec(&exec_id, None)
@@ -225,18 +224,12 @@ impl SandboxClient for DockerSandboxClient {
                 {
                     StartExecResults::Attached { mut output, .. } => {
                         while let Some(chunk) = output.next().await {
-                            match chunk
-                                .map_err(|e| anyhow::anyhow!("Exec output error: {e}"))?
-                            {
+                            match chunk.map_err(|e| anyhow::anyhow!("Exec output error: {e}"))? {
                                 LogOutput::StdOut { message } => {
-                                    stdout_buf.push_str(
-                                        &String::from_utf8_lossy(&message),
-                                    );
+                                    stdout_buf.push_str(&String::from_utf8_lossy(&message));
                                 }
                                 LogOutput::StdErr { message } => {
-                                    stderr_buf.push_str(
-                                        &String::from_utf8_lossy(&message),
-                                    );
+                                    stderr_buf.push_str(&String::from_utf8_lossy(&message));
                                 }
                                 _ => {}
                             }
@@ -245,16 +238,11 @@ impl SandboxClient for DockerSandboxClient {
                     StartExecResults::Detached => {}
                 }
                 Ok::<(), anyhow::Error>(())
-            },
-        )
-        .await;
+            })
+            .await;
 
         match start_result {
-            Err(_elapsed) => {
-                return Err(anyhow::anyhow!(
-                    "Command timed out after {timeout_ms}ms"
-                ))
-            }
+            Err(_elapsed) => return Err(anyhow::anyhow!("Command timed out after {timeout_ms}ms")),
             Ok(Err(e)) => return Err(e),
             Ok(Ok(())) => {}
         }
@@ -284,18 +272,12 @@ impl SandboxClient for DockerSandboxClient {
 
         // For files up to ~500KB, write in one command.
         // printf is more portable than echo for binary/special-char content.
-        let cmd = format!(
-            "mkdir -p '{dir}' && printf '%s' '{b64}' | base64 -d > '{path}'"
-        );
+        let cmd = format!("mkdir -p '{dir}' && printf '%s' '{b64}' | base64 -d > '{path}'");
 
         let out = self.run_command(&cmd, "/", 30_000).await?;
 
         if out.exit_code != 0 {
-            anyhow::bail!(
-                "write_file failed (exit {}): {}",
-                out.exit_code,
-                out.stderr
-            );
+            anyhow::bail!("write_file failed (exit {}): {}", out.exit_code, out.stderr);
         }
 
         Ok(())

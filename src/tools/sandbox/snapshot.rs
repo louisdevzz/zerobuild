@@ -60,6 +60,7 @@ impl Tool for SandboxSaveSnapshotTool {
                 success: false,
                 output: String::new(),
                 error: Some(e),
+                error_hint: None,
             });
         }
 
@@ -74,6 +75,7 @@ impl Tool for SandboxSaveSnapshotTool {
                     success: false,
                     output: String::new(),
                     error: Some(format!("Failed to collect snapshot files: {e}")),
+                    error_hint: None,
                 })
             }
         };
@@ -87,6 +89,7 @@ impl Tool for SandboxSaveSnapshotTool {
                 error: Some(format!(
                     "No files found in {workdir}. Make sure the project has been created."
                 )),
+                error_hint: None,
             });
         }
 
@@ -98,6 +101,7 @@ impl Tool for SandboxSaveSnapshotTool {
                     success: false,
                     output: String::new(),
                     error: Some(format!("Failed to open store DB: {e}")),
+                    error_hint: None,
                 })
             }
         };
@@ -107,6 +111,7 @@ impl Tool for SandboxSaveSnapshotTool {
                 success: false,
                 output: String::new(),
                 error: Some(format!("Failed to save snapshot: {e}")),
+                error_hint: None,
             });
         }
 
@@ -114,6 +119,7 @@ impl Tool for SandboxSaveSnapshotTool {
             success: true,
             output: format!("Snapshot saved: {files_count} files from {workdir}"),
             error: None,
+            error_hint: None,
         })
     }
 }

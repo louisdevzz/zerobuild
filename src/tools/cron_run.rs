@@ -48,6 +48,7 @@ impl Tool for CronRunTool {
             return Ok(ToolResult {
                 success: false,
                 output: String::new(),
+                error_hint: None,
                 error: Some("cron is disabled by config (cron.enabled=false)".to_string()),
             });
         }
@@ -58,6 +59,7 @@ impl Tool for CronRunTool {
                 return Ok(ToolResult {
                     success: false,
                     output: String::new(),
+                    error_hint: None,
                     error: Some("Missing 'job_id' parameter".to_string()),
                 });
             }
@@ -71,6 +73,7 @@ impl Tool for CronRunTool {
             return Ok(ToolResult {
                 success: false,
                 output: String::new(),
+                error_hint: None,
                 error: Some("Security policy: read-only mode, cannot perform 'cron_run'".into()),
             });
         }
@@ -79,6 +82,7 @@ impl Tool for CronRunTool {
             return Ok(ToolResult {
                 success: false,
                 output: String::new(),
+                error_hint: None,
                 error: Some("Rate limit exceeded: too many actions in the last hour".into()),
             });
         }
@@ -89,6 +93,7 @@ impl Tool for CronRunTool {
                 return Ok(ToolResult {
                     success: false,
                     output: String::new(),
+                    error_hint: None,
                     error: Some(e.to_string()),
                 });
             }
@@ -102,6 +107,7 @@ impl Tool for CronRunTool {
                 return Ok(ToolResult {
                     success: false,
                     output: String::new(),
+                    error_hint: None,
                     error: Some(reason),
                 });
             }
@@ -111,6 +117,7 @@ impl Tool for CronRunTool {
             return Ok(ToolResult {
                 success: false,
                 output: String::new(),
+                error_hint: None,
                 error: Some("Rate limit exceeded: action budget exhausted".into()),
             });
         }
@@ -140,6 +147,7 @@ impl Tool for CronRunTool {
                 "duration_ms": duration_ms,
                 "output": output
             }))?,
+            error_hint: None,
             error: if success {
                 None
             } else {

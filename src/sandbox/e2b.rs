@@ -352,27 +352,27 @@ impl SandboxClient for E2bSandboxClient {
             "E2B API returned {status}: {body_text}\nMake sure the dev server is running on port {port}."
         );
 
-        let preview_url =
-            if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&body_text) {
-                parsed["url"]
-                    .as_str()
-                    .or_else(|| parsed["host"].as_str())
-                    .map(|u| {
-                        if u.starts_with("http") {
-                            u.to_string()
-                        } else {
-                            format!("https://{u}")
-                        }
-                    })
-                    .unwrap_or_else(|| body_text.trim().trim_matches('"').to_string())
+        let preview_url = if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&body_text)
+        {
+            parsed["url"]
+                .as_str()
+                .or_else(|| parsed["host"].as_str())
+                .map(|u| {
+                    if u.starts_with("http") {
+                        u.to_string()
+                    } else {
+                        format!("https://{u}")
+                    }
+                })
+                .unwrap_or_else(|| body_text.trim().trim_matches('"').to_string())
+        } else {
+            let raw = body_text.trim().trim_matches('"').to_string();
+            if raw.starts_with("http") {
+                raw
             } else {
-                let raw = body_text.trim().trim_matches('"').to_string();
-                if raw.starts_with("http") {
-                    raw
-                } else {
-                    format!("https://{raw}")
-                }
-            };
+                format!("https://{raw}")
+            }
+        };
 
         Ok(preview_url)
     }

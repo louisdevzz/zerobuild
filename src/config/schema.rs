@@ -3233,8 +3233,12 @@ pub struct NapcatConfig {
 }
 
 impl ChannelConfig for NapcatConfig {
-    fn name() -> &'static str { "Napcat" }
-    fn desc() -> &'static str { "QQ via Napcat (OneBot)" }
+    fn name() -> &'static str {
+        "Napcat"
+    }
+    fn desc() -> &'static str {
+        "QQ via Napcat (OneBot)"
+    }
 }
 
 /// GitHub channel configuration (webhook + REST API).
@@ -3261,7 +3265,10 @@ impl std::fmt::Debug for GitHubConfig {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("GitHubConfig")
             .field("access_token", &"[REDACTED]")
-            .field("webhook_secret", &self.webhook_secret.as_ref().map(|_| "[REDACTED]"))
+            .field(
+                "webhook_secret",
+                &self.webhook_secret.as_ref().map(|_| "[REDACTED]"),
+            )
             .field("api_base_url", &self.api_base_url)
             .field("allowed_repos", &self.allowed_repos)
             .finish()
@@ -3269,8 +3276,12 @@ impl std::fmt::Debug for GitHubConfig {
 }
 
 impl ChannelConfig for GitHubConfig {
-    fn name() -> &'static str { "GitHub" }
-    fn desc() -> &'static str { "issues/PR comments via webhook + REST API" }
+    fn name() -> &'static str {
+        "GitHub"
+    }
+    fn desc() -> &'static str {
+        "issues/PR comments via webhook + REST API"
+    }
 }
 
 /// BlueBubbles iMessage bridge channel configuration.
@@ -3301,14 +3312,21 @@ impl std::fmt::Debug for BlueBubblesConfig {
             .field("server_url", &self.server_url)
             .field("password", &"[REDACTED]")
             .field("allowed_senders", &self.allowed_senders)
-            .field("webhook_secret", &self.webhook_secret.as_ref().map(|_| "[REDACTED]"))
+            .field(
+                "webhook_secret",
+                &self.webhook_secret.as_ref().map(|_| "[REDACTED]"),
+            )
             .finish()
     }
 }
 
 impl ChannelConfig for BlueBubblesConfig {
-    fn name() -> &'static str { "BlueBubbles" }
-    fn desc() -> &'static str { "iMessage via BlueBubbles self-hosted macOS server" }
+    fn name() -> &'static str {
+        "BlueBubbles"
+    }
+    fn desc() -> &'static str {
+        "iMessage via BlueBubbles self-hosted macOS server"
+    }
 }
 
 /// QQ Official Bot configuration (Tencent QQ Bot SDK)
@@ -4368,7 +4386,6 @@ async fn sync_directory(path: &Path) -> Result<()> {
 
 // ── ZeroBuild ────────────────────────────────────────────────────────────────
 
-
 /// SOP execution mode for the engine.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "lowercase")]
@@ -4428,16 +4445,15 @@ impl Default for SopConfig {
 /// [zerobuild]
 /// role = "master"
 /// e2b_api_key = "e2b_..."
-/// e2b_template = "code-interpreter-v1"
+/// e2b_template = "base"
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct ZerobuildConfig {
-
     /// E2B API key. Overridden by `E2B_API_KEY` env var.
     pub e2b_api_key: String,
 
-    /// E2B sandbox template ID. Default: "code-interpreter-v1".
+    /// E2B sandbox template ID. Default: "base".
     pub e2b_template: String,
 
     /// E2B sandbox timeout in milliseconds. Default: 600000 (10 minutes).
@@ -4472,7 +4488,7 @@ impl Default for ZerobuildConfig {
     fn default() -> Self {
         Self {
             e2b_api_key: String::new(),
-            e2b_template: "code-interpreter-v1".to_string(),
+            e2b_template: "base".to_string(),
             e2b_timeout_ms: 600_000,
             github_client_id: String::new(),
             github_client_secret: String::new(),
@@ -4484,8 +4500,7 @@ impl Default for ZerobuildConfig {
 }
 
 fn default_db_path() -> String {
-    let home = UserDirs::new()
-        .map_or_else(|| PathBuf::from("."), |u| u.home_dir().to_path_buf());
+    let home = UserDirs::new().map_or_else(|| PathBuf::from("."), |u| u.home_dir().to_path_buf());
     home.join(".zerobuild")
         .join("zerobuild.db")
         .to_string_lossy()

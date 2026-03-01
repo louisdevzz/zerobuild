@@ -11,13 +11,15 @@ use crate::hardware::{self, HardwareConfig};
 use crate::memory::{
     default_memory_backend_key, memory_backend_profile, selectable_memory_backends,
 };
-use crate::store;
 use crate::providers::{
     canonical_china_provider_name, is_glm_alias, is_glm_cn_alias, is_minimax_alias,
     is_moonshot_alias, is_qianfan_alias, is_qwen_alias, is_qwen_oauth_alias, is_zai_alias,
     is_zai_cn_alias,
 };
+use crate::store;
 use anyhow::{bail, Context, Result};
+use axum::response::Html;
+use axum::{extract::Query, http::StatusCode, response::IntoResponse, routing::get, Router};
 use console::style;
 use dialoguer::{Confirm, Input, Select};
 use serde::{Deserialize, Serialize};
@@ -30,14 +32,6 @@ use std::time::Duration;
 use tokio::fs;
 use tokio::net::TcpListener;
 use tokio::sync::oneshot;
-use axum::{
-    extract::Query,
-    http::StatusCode,
-    response::IntoResponse,
-    routing::get,
-    Router,
-};
-use axum::response::Html;
 
 // ── Project context collected during wizard ──────────────────────
 
@@ -53,18 +47,18 @@ pub struct ProjectContext {
 // ── Banner ───────────────────────────────────────────────────────
 
 const BANNER: &str = r"
-    ⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡
+    ⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡
 
-    ███████╗███████╗██████╗  ██████╗  ██████╗██╗      █████╗ ██╗    ██╗
-    ╚══███╔╝██╔════╝██╔══██╗██╔═══██╗██╔════╝██║     ██╔══██╗██║    ██║
-      ███╔╝ █████╗  ██████╔╝██║   ██║██║     ██║     ███████║██║ █╗ ██║
-     ███╔╝  ██╔══╝  ██╔══██╗██║   ██║██║     ██║     ██╔══██║██║███╗██║
-    ███████╗███████╗██║  ██║╚██████╔╝╚██████╗███████╗██║  ██║╚███╔███╔╝
-    ╚══════╝╚══════╝╚═╝  ╚═╝ ╚═════╝  ╚═════╝╚══════╝╚═╝  ╚═╝ ╚══╝╚══╝
+    ███████╗███████╗██████╗  ██████╗ ██████╗ ██╗   ██╗██╗██╗     ██████╗
+    ╚══███╔╝██╔════╝██╔══██╗██╔═══██╗██╔══██╗██║   ██║██║██║     ██╔══██╗
+      ███╔╝ █████╗  ██████╔╝██║   ██║██████╔╝██║   ██║██║██║     ██║  ██║
+     ███╔╝  ██╔══╝  ██╔══██╗██║   ██║██╔══██╗██║   ██║██║██║     ██║  ██║
+    ███████╗███████╗██║  ██║╚██████╔╝██████╔╝╚██████╔╝██║███████╗██████╔╝
+    ╚══════╝╚══════╝╚═╝  ╚═╝ ╚═════╝ ╚═════╝  ╚═════╝ ╚═╝╚══════╝╚═════╝
 
-    Zero overhead. Zero compromise. 100% Rust. 100% Agnostic.
+    Build apps. Chat to deploy. Ship to GitHub. 100% Rust.
 
-    ⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡
+    ⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡
 ";
 
 const LIVE_MODEL_MAX_OPTIONS: usize = 120;
@@ -1916,7 +1910,10 @@ async fn setup_workspace() -> Result<(PathBuf, PathBuf)> {
         ));
         println!("         {} unset ZEROBUILD_CONFIG_DIR", style("•").dim());
         println!("         {} unset ZEROBUILD_WORKSPACE", style("•").dim());
-        println!("         {} rm ~/.zerobuild/active_workspace.toml", style("•").dim());
+        println!(
+            "         {} rm ~/.zerobuild/active_workspace.toml",
+            style("•").dim()
+        );
     }
 
     print_bullet(&format!(
@@ -2054,7 +2051,9 @@ async fn setup_provider(workspace_dir: &Path) -> Result<(String, String, String,
             style("Custom Provider Setup").white().bold(),
             style("— any OpenAI-compatible API").dim()
         );
-        print_bullet("ZeroBuild works with ANY API that speaks the OpenAI chat completions format.");
+        print_bullet(
+            "ZeroBuild works with ANY API that speaks the OpenAI chat completions format.",
+        );
         print_bullet("Examples: LiteLLM, LocalAI, vLLM, text-generation-webui, LM Studio, etc.");
         println!();
 
@@ -2888,18 +2887,131 @@ async fn setup_connectors() -> Result<crate::config::ZerobuildConfig> {
     }
 
     println!();
+
+    // ── Sandbox Provider ──
+    println!(
+        "  {} {}",
+        style("Sandbox (Code Execution)").white().bold(),
+        style("— Isolated environment for running and previewing apps").dim()
+    );
+    println!();
+
+    let configure_sandbox = Confirm::new()
+        .with_prompt("  Configure code sandbox now?")
+        .default(true)
+        .interact()?;
+
+    let mut config = config;
+
+    if configure_sandbox {
+        let sandbox_options = vec![
+            "E2B   (cloud sandbox, recommended — fast, no Docker required)",
+            "Docker (local sandbox — requires Docker installed)",
+        ];
+
+        let choice = Select::new()
+            .with_prompt("  Select sandbox provider")
+            .items(&sandbox_options)
+            .default(0)
+            .interact()?;
+
+        match choice {
+            0 => {
+                // E2B
+                println!();
+                println!(
+                    "  {} {}",
+                    style("E2B Setup").white().bold(),
+                    style("— Get your API key at https://e2b.dev/dashboard").dim()
+                );
+                println!();
+
+                let api_key: String = Input::new()
+                    .with_prompt("  E2B API key (or Enter to skip)")
+                    .allow_empty(true)
+                    .interact_text()?;
+
+                if api_key.trim().is_empty() {
+                    println!(
+                        "  {} {}",
+                        style("→").dim(),
+                        style("Skipped — set zerobuild.e2b_api_key in config.toml later").dim()
+                    );
+                } else {
+                    config.e2b_api_key = api_key.trim().to_string();
+
+                    let template: String = Input::new()
+                        .with_prompt(format!(
+                            "  E2B template ID (Enter for default: {})",
+                            config.e2b_template
+                        ))
+                        .allow_empty(true)
+                        .interact_text()?;
+
+                    if !template.trim().is_empty() {
+                        config.e2b_template = template.trim().to_string();
+                    }
+
+                    println!(
+                        "  {} E2B sandbox: {} (template: {})",
+                        style("✓").green().bold(),
+                        style("enabled").green(),
+                        style(&config.e2b_template).cyan()
+                    );
+                }
+            }
+            1 => {
+                // Docker
+                println!();
+                println!(
+                    "  {} {}",
+                    style("Docker Setup").white().bold(),
+                    style("— Runs sandbox locally using Docker").dim()
+                );
+                println!();
+
+                let image: String = Input::new()
+                    .with_prompt(format!(
+                        "  Docker image (Enter for default: {})",
+                        config.docker_image
+                    ))
+                    .allow_empty(true)
+                    .interact_text()?;
+
+                if !image.trim().is_empty() {
+                    config.docker_image = image.trim().to_string();
+                }
+
+                println!(
+                    "  {} Docker sandbox: {} (image: {})",
+                    style("✓").green().bold(),
+                    style("enabled").green(),
+                    style(&config.docker_image).cyan()
+                );
+            }
+            _ => {}
+        }
+    } else {
+        println!(
+            "  {} {}",
+            style("→").dim(),
+            style("Skipped — configure sandbox in config.toml later").dim()
+        );
+    }
+
+    println!();
     Ok(config)
 }
 
 /// Run GitHub OAuth flow during onboarding
 async fn run_github_oauth_flow(config: &crate::config::ZerobuildConfig) -> Result<()> {
     use std::sync::atomic::{AtomicBool, Ordering};
-    
+
     // Find an available port
     let listener = TcpListener::bind("127.0.0.1:0").await?;
     let port = listener.local_addr()?.port();
     drop(listener);
-    
+
     let callback_url = format!("http://127.0.0.1:{}/callback", port);
     let proxy_url = &config.github_oauth_proxy;
     let auth_url = format!(
@@ -2907,12 +3019,12 @@ async fn run_github_oauth_flow(config: &crate::config::ZerobuildConfig) -> Resul
         proxy_url,
         urlencoding::encode(&callback_url)
     );
-    
+
     // Shared state
     let (tx, mut rx) = tokio::sync::mpsc::channel::<Result<(String, Option<String>)>>(1);
     let server_ready = Arc::new(AtomicBool::new(false));
     let server_ready_clone = server_ready.clone();
-    
+
     // Build router
     let app = Router::new()
         .route("/", get(move || async move {
@@ -2933,32 +3045,32 @@ async fn run_github_oauth_flow(config: &crate::config::ZerobuildConfig) -> Resul
                 }
             }
         }));
-    
+
     // Start server
     let server_url = format!("http://127.0.0.1:{}", port);
     let addr: std::net::SocketAddr = format!("127.0.0.1:{}", port).parse()?;
-    
+
     println!();
     println!(
         "  {} Starting OAuth server on port {}...",
         style("🚀").cyan(),
         port
     );
-    
+
     // Spawn server and wait for it to be ready
     let server = axum::serve(tokio::net::TcpListener::bind(addr).await?, app);
     let server_handle = tokio::spawn(async move {
         server_ready_clone.store(true, Ordering::SeqCst);
         server.await
     });
-    
+
     // Wait a bit for server to start
     tokio::time::sleep(Duration::from_millis(500)).await;
-    
+
     if !server_ready.load(Ordering::SeqCst) {
         bail!("Failed to start OAuth server");
     }
-    
+
     println!(
         "  {} Server ready! Open: {}",
         style("✓").green(),
@@ -2969,7 +3081,7 @@ async fn run_github_oauth_flow(config: &crate::config::ZerobuildConfig) -> Resul
         "  {} Waiting for GitHub authorization (2 min timeout)...",
         style("⏳").cyan()
     );
-    
+
     // Wait for callback or timeout
     let result = tokio::select! {
         Some(result) = rx.recv() => result,
@@ -2978,17 +3090,17 @@ async fn run_github_oauth_flow(config: &crate::config::ZerobuildConfig) -> Resul
             bail!("Timeout — no response from GitHub within 2 minutes");
         }
     };
-    
+
     server_handle.abort();
-    
+
     let (token, username) = result?;
-    
+
     // Save token
     let db_path = std::path::PathBuf::from(&config.db_path);
     fs::create_dir_all(db_path.parent().unwrap_or(Path::new("."))).await?;
     let conn = store::init_db(&db_path)?;
     store::tokens::save_github_token(&conn, &token, username.as_deref())?;
-    
+
     Ok(())
 }
 
@@ -5729,7 +5841,6 @@ fn print_summary(config: &Config) {
     );
     println!();
 }
-
 
 #[cfg(test)]
 mod tests {

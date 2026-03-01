@@ -532,6 +532,7 @@ impl Tool for XlsxReadTool {
                     success: false,
                     output: String::new(),
                     error: Some(err.to_string()),
+                    error_hint: None,
                 })
             }
         };
@@ -541,6 +542,7 @@ impl Tool for XlsxReadTool {
                 success: false,
                 output: String::new(),
                 error: Some("Rate limit exceeded: too many actions in the last hour".into()),
+                error_hint: None,
             });
         }
 
@@ -549,6 +551,7 @@ impl Tool for XlsxReadTool {
                 success: false,
                 output: String::new(),
                 error: Some(format!("Path not allowed by security policy: {path}")),
+                error_hint: None,
             });
         }
 
@@ -557,6 +560,7 @@ impl Tool for XlsxReadTool {
                 success: false,
                 output: String::new(),
                 error: Some("Rate limit exceeded: action budget exhausted".into()),
+                error_hint: None,
             });
         }
 
@@ -569,6 +573,7 @@ impl Tool for XlsxReadTool {
                     success: false,
                     output: String::new(),
                     error: Some(format!("Failed to resolve file path: {e}")),
+                    error_hint: None,
                 });
             }
         };
@@ -581,6 +586,7 @@ impl Tool for XlsxReadTool {
                     self.security
                         .resolved_path_violation_message(&resolved_path),
                 ),
+                error_hint: None,
             });
         }
 
@@ -596,6 +602,7 @@ impl Tool for XlsxReadTool {
                             "XLSX too large: {} bytes (limit: {MAX_XLSX_BYTES} bytes)",
                             meta.len()
                         )),
+                        error_hint: None,
                     });
                 }
             }
@@ -604,6 +611,7 @@ impl Tool for XlsxReadTool {
                     success: false,
                     output: String::new(),
                     error: Some(format!("Failed to read file metadata: {e}")),
+                    error_hint: None,
                 });
             }
         }
@@ -615,6 +623,7 @@ impl Tool for XlsxReadTool {
                     success: false,
                     output: String::new(),
                     error: Some(format!("Failed to read XLSX file: {e}")),
+                    error_hint: None,
                 });
             }
         };
@@ -626,6 +635,7 @@ impl Tool for XlsxReadTool {
                     success: false,
                     output: String::new(),
                     error: Some(format!("XLSX extraction failed: {e}")),
+                    error_hint: None,
                 });
             }
             Err(e) => {
@@ -633,6 +643,7 @@ impl Tool for XlsxReadTool {
                     success: false,
                     output: String::new(),
                     error: Some(format!("XLSX extraction task panicked: {e}")),
+                    error_hint: None,
                 });
             }
         };
@@ -642,6 +653,7 @@ impl Tool for XlsxReadTool {
                 success: true,
                 output: "XLSX contains no extractable text".into(),
                 error: None,
+                error_hint: None,
             });
         }
 
@@ -658,6 +670,7 @@ impl Tool for XlsxReadTool {
             success: true,
             output,
             error: None,
+            error_hint: None,
         })
     }
 }
@@ -1173,5 +1186,4 @@ mod tests {
             .unwrap_or("")
             .contains("escapes workspace"));
     }
-
 }

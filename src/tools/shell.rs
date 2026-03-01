@@ -158,6 +158,7 @@ impl Tool for ShellTool {
                 success: false,
                 output: String::new(),
                 error: Some("Rate limit exceeded: too many actions in the last hour".into()),
+                error_hint: None,
             });
         }
 
@@ -168,6 +169,7 @@ impl Tool for ShellTool {
                     success: false,
                     output: String::new(),
                     error: Some(reason),
+                    error_hint: None,
                 });
             }
         }
@@ -177,6 +179,7 @@ impl Tool for ShellTool {
                 success: false,
                 output: String::new(),
                 error: Some(format!("Path blocked by security policy: {path}")),
+                error_hint: None,
             });
         }
 
@@ -185,6 +188,7 @@ impl Tool for ShellTool {
                 success: false,
                 output: String::new(),
                 error: Some("Rate limit exceeded: action budget exhausted".into()),
+                error_hint: None,
             });
         }
 
@@ -201,6 +205,7 @@ impl Tool for ShellTool {
                     success: false,
                     output: String::new(),
                     error: Some(format!("Failed to build runtime command: {e}")),
+                    error_hint: None,
                 });
             }
         };
@@ -238,12 +243,14 @@ impl Tool for ShellTool {
                     } else {
                         Some(stderr)
                     },
+                    error_hint: None,
                 })
             }
             Ok(Err(e)) => Ok(ToolResult {
                 success: false,
                 output: String::new(),
                 error: Some(format!("Failed to execute command: {e}")),
+                error_hint: None,
             }),
             Err(_) => Ok(ToolResult {
                 success: false,
@@ -251,6 +258,7 @@ impl Tool for ShellTool {
                 error: Some(format!(
                     "Command timed out after {SHELL_TIMEOUT_SECS}s and was killed"
                 )),
+                error_hint: None,
             }),
         }
     }
@@ -541,8 +549,8 @@ mod tests {
             .expect("approved command execution should succeed");
         assert!(allowed.success);
 
-        let _ =
-            tokio::fs::remove_file(std::env::temp_dir().join("zerobuild_shell_approval_test")).await;
+        let _ = tokio::fs::remove_file(std::env::temp_dir().join("zerobuild_shell_approval_test"))
+            .await;
     }
 
     // ── §5.2 Shell timeout enforcement tests ─────────────────

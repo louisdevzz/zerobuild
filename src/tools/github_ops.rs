@@ -24,6 +24,7 @@ fn load_token(db_path: &PathBuf) -> Result<crate::store::tokens::GitHubToken, To
         success: false,
         output: String::new(),
         error: Some(format!("Failed to open store DB: {e}")),
+        error_hint: None,
     })?;
 
     match store::tokens::load_github_token(&conn) {
@@ -34,11 +35,13 @@ fn load_token(db_path: &PathBuf) -> Result<crate::store::tokens::GitHubToken, To
             error: Some(
                 "GitHub is not connected. Use github_connect to authenticate first.".to_string(),
             ),
+            error_hint: None,
         }),
         Err(e) => Err(ToolResult {
             success: false,
             output: String::new(),
             error: Some(format!("Failed to load GitHub token: {e}")),
+            error_hint: None,
         }),
     }
 }
@@ -53,10 +56,7 @@ fn gh_client() -> anyhow::Result<reqwest::Client> {
 }
 
 /// GET a GitHub API endpoint and return the response body as ToolResult.
-async fn github_get(
-    token: &str,
-    url: &str,
-) -> anyhow::Result<ToolResult> {
+async fn github_get(token: &str, url: &str) -> anyhow::Result<ToolResult> {
     let client = gh_client()?;
     let resp = client
         .get(url)
@@ -67,13 +67,17 @@ async fn github_get(
         .map_err(|e| anyhow::anyhow!("GitHub API request failed: {e}"))?;
 
     let status = resp.status();
-    let body = resp.text().await.unwrap_or_else(|_| "<unreadable>".to_string());
+    let body = resp
+        .text()
+        .await
+        .unwrap_or_else(|_| "<unreadable>".to_string());
 
     if !status.is_success() {
         return Ok(ToolResult {
             success: false,
             output: String::new(),
             error: Some(format!("GitHub API returned {status}: {body}")),
+            error_hint: None,
         });
     }
 
@@ -81,6 +85,7 @@ async fn github_get(
         success: true,
         output: body,
         error: None,
+        error_hint: None,
     })
 }
 
@@ -101,13 +106,17 @@ async fn github_post_api(
         .map_err(|e| anyhow::anyhow!("GitHub API request failed: {e}"))?;
 
     let status = resp.status();
-    let resp_body = resp.text().await.unwrap_or_else(|_| "<unreadable>".to_string());
+    let resp_body = resp
+        .text()
+        .await
+        .unwrap_or_else(|_| "<unreadable>".to_string());
 
     if !status.is_success() {
         return Ok(ToolResult {
             success: false,
             output: String::new(),
             error: Some(format!("GitHub API returned {status}: {resp_body}")),
+            error_hint: None,
         });
     }
 
@@ -115,6 +124,7 @@ async fn github_post_api(
         success: true,
         output: resp_body,
         error: None,
+        error_hint: None,
     })
 }
 
@@ -135,13 +145,17 @@ async fn github_patch_api(
         .map_err(|e| anyhow::anyhow!("GitHub API request failed: {e}"))?;
 
     let status = resp.status();
-    let resp_body = resp.text().await.unwrap_or_else(|_| "<unreadable>".to_string());
+    let resp_body = resp
+        .text()
+        .await
+        .unwrap_or_else(|_| "<unreadable>".to_string());
 
     if !status.is_success() {
         return Ok(ToolResult {
             success: false,
             output: String::new(),
             error: Some(format!("GitHub API returned {status}: {resp_body}")),
+            error_hint: None,
         });
     }
 
@@ -149,6 +163,7 @@ async fn github_patch_api(
         success: true,
         output: resp_body,
         error: None,
+        error_hint: None,
     })
 }
 
@@ -171,6 +186,7 @@ fn resolve_owner(
                  Try reconnecting GitHub via github_connect."
                     .to_string(),
             ),
+            error_hint: None,
         })
 }
 
@@ -259,6 +275,7 @@ impl Tool for GitHubCreateIssueTool {
                 success: false,
                 output: String::new(),
                 error: Some("repo and title are required".to_string()),
+                error_hint: None,
             });
         }
 
@@ -269,8 +286,12 @@ impl Tool for GitHubCreateIssueTool {
 
         let url = format!("{GITHUB_API_BASE}/repos/{owner}/{repo}/issues");
         let mut body = json!({ "title": title });
-        if let Some(v) = args["body"].as_str() { body["body"] = json!(v); }
-        if let Some(v) = args["labels"].as_array() { body["labels"] = json!(v); }
+        if let Some(v) = args["body"].as_str() {
+            body["body"] = json!(v);
+        }
+        if let Some(v) = args["labels"].as_array() {
+            body["labels"] = json!(v);
+        }
 
         let result = github_post_api(&tok.token, &url, body).await?;
         if !result.success {
@@ -285,6 +306,7 @@ impl Tool for GitHubCreateIssueTool {
             success: true,
             output: format!("Issue #{issue_num} created: {issue_url}"),
             error: None,
+            error_hint: None,
         })
     }
 }
@@ -335,7 +357,10 @@ impl Tool for GitHubCreatePRTool {
 
     async fn execute(&self, args: serde_json::Value) -> anyhow::Result<ToolResult> {
         let db_path = PathBuf::from(&self.config.db_path);
-        let tok = match load_token(&db_path) { Ok(t) => t, Err(e) => return Ok(e) };
+        let tok = match load_token(&db_path) {
+            Ok(t) => t,
+            Err(e) => return Ok(e),
+        };
 
         let repo = args["repo"].as_str().unwrap_or("").trim().to_string();
         let title = args["title"].as_str().unwrap_or("").trim().to_string();
@@ -346,18 +371,26 @@ impl Tool for GitHubCreatePRTool {
                 success: false,
                 output: String::new(),
                 error: Some("repo, title, and head are required".to_string()),
+                error_hint: None,
             });
         }
 
-        let owner = match resolve_owner(&args, tok.username.as_deref()) { Ok(o) => o, Err(e) => return Ok(e) };
+        let owner = match resolve_owner(&args, tok.username.as_deref()) {
+            Ok(o) => o,
+            Err(e) => return Ok(e),
+        };
         let base = args["base"].as_str().unwrap_or("main").to_string();
 
         let url = format!("{GITHUB_API_BASE}/repos/{owner}/{repo}/pulls");
         let mut body = json!({ "title": title, "head": head, "base": base });
-        if let Some(v) = args["body"].as_str() { body["body"] = json!(v); }
+        if let Some(v) = args["body"].as_str() {
+            body["body"] = json!(v);
+        }
 
         let result = github_post_api(&tok.token, &url, body).await?;
-        if !result.success { return Ok(result); }
+        if !result.success {
+            return Ok(result);
+        }
 
         let parsed: serde_json::Value = serde_json::from_str(&result.output).unwrap_or_default();
         let pr_url = parsed["html_url"].as_str().unwrap_or("");
@@ -366,7 +399,8 @@ impl Tool for GitHubCreatePRTool {
         // Apply labels if provided
         if let Some(labels) = args["labels"].as_array() {
             if !labels.is_empty() {
-                let labels_url = format!("{GITHUB_API_BASE}/repos/{owner}/{repo}/issues/{pr_num}/labels");
+                let labels_url =
+                    format!("{GITHUB_API_BASE}/repos/{owner}/{repo}/issues/{pr_num}/labels");
                 let _ = github_post_api(&tok.token, &labels_url, json!({ "labels": labels })).await;
             }
         }
@@ -375,6 +409,7 @@ impl Tool for GitHubCreatePRTool {
             success: true,
             output: format!("Pull request #{pr_num} created: {pr_url}"),
             error: None,
+            error_hint: None,
         })
     }
 }
@@ -422,7 +457,10 @@ impl Tool for GitHubReviewPRTool {
 
     async fn execute(&self, args: serde_json::Value) -> anyhow::Result<ToolResult> {
         let db_path = PathBuf::from(&self.config.db_path);
-        let tok = match load_token(&db_path) { Ok(t) => t, Err(e) => return Ok(e) };
+        let tok = match load_token(&db_path) {
+            Ok(t) => t,
+            Err(e) => return Ok(e),
+        };
 
         let repo = args["repo"].as_str().unwrap_or("").trim().to_string();
         let pr_number = args["pr_number"].as_u64().unwrap_or(0);
@@ -433,17 +471,25 @@ impl Tool for GitHubReviewPRTool {
                 success: false,
                 output: String::new(),
                 error: Some("repo, pr_number, and event are required".to_string()),
+                error_hint: None,
             });
         }
 
-        let owner = match resolve_owner(&args, tok.username.as_deref()) { Ok(o) => o, Err(e) => return Ok(e) };
+        let owner = match resolve_owner(&args, tok.username.as_deref()) {
+            Ok(o) => o,
+            Err(e) => return Ok(e),
+        };
 
         let url = format!("{GITHUB_API_BASE}/repos/{owner}/{repo}/pulls/{pr_number}/reviews");
         let mut body = json!({ "event": event });
-        if let Some(v) = args["body"].as_str() { body["body"] = json!(v); }
+        if let Some(v) = args["body"].as_str() {
+            body["body"] = json!(v);
+        }
 
         let result = github_post_api(&tok.token, &url, body).await?;
-        if !result.success { return Ok(result); }
+        if !result.success {
+            return Ok(result);
+        }
 
         let parsed: serde_json::Value = serde_json::from_str(&result.output).unwrap_or_default();
         let state = parsed["state"].as_str().unwrap_or(&event);
@@ -453,6 +499,7 @@ impl Tool for GitHubReviewPRTool {
             success: true,
             output: format!("Review #{review_id} submitted ({state}) on PR #{pr_number}"),
             error: None,
+            error_hint: None,
         })
     }
 }
@@ -504,17 +551,21 @@ impl Tool for GitHubListReposTool {
 
     async fn execute(&self, args: serde_json::Value) -> anyhow::Result<ToolResult> {
         let db_path = PathBuf::from(&self.config.db_path);
-        let tok = match load_token(&db_path) { Ok(t) => t, Err(e) => return Ok(e) };
+        let tok = match load_token(&db_path) {
+            Ok(t) => t,
+            Err(e) => return Ok(e),
+        };
 
         let repo_type = args["type"].as_str().unwrap_or("owner");
         let sort = args["sort"].as_str().unwrap_or("updated");
         let limit = args["limit"].as_u64().unwrap_or(30).min(100);
 
-        let url = format!(
-            "{GITHUB_API_BASE}/user/repos?type={repo_type}&sort={sort}&per_page={limit}"
-        );
+        let url =
+            format!("{GITHUB_API_BASE}/user/repos?type={repo_type}&sort={sort}&per_page={limit}");
         let result = github_get(&tok.token, &url).await?;
-        if !result.success { return Ok(result); }
+        if !result.success {
+            return Ok(result);
+        }
 
         let repos: serde_json::Value = serde_json::from_str(&result.output).unwrap_or_default();
         let repo_arr = repos.as_array().map(|a| a.as_slice()).unwrap_or_default();
@@ -524,24 +575,29 @@ impl Tool for GitHubListReposTool {
                 success: true,
                 output: "No repositories found.".to_string(),
                 error: None,
+                error_hint: None,
             });
         }
 
-        let lines: Vec<String> = repo_arr.iter().map(|r| {
-            let name = r["full_name"].as_str().unwrap_or("?");
-            let desc = r["description"].as_str().unwrap_or("");
-            let url = r["html_url"].as_str().unwrap_or("");
-            if desc.is_empty() {
-                format!("• {name} — {url}")
-            } else {
-                format!("• {name} — {desc} ({url})")
-            }
-        }).collect();
+        let lines: Vec<String> = repo_arr
+            .iter()
+            .map(|r| {
+                let name = r["full_name"].as_str().unwrap_or("?");
+                let desc = r["description"].as_str().unwrap_or("");
+                let url = r["html_url"].as_str().unwrap_or("");
+                if desc.is_empty() {
+                    format!("• {name} — {url}")
+                } else {
+                    format!("• {name} — {desc} ({url})")
+                }
+            })
+            .collect();
 
         Ok(ToolResult {
             success: true,
             output: format!("Repositories ({}):\n{}", lines.len(), lines.join("\n")),
             error: None,
+            error_hint: None,
         })
     }
 }
@@ -588,17 +644,29 @@ impl Tool for GitHubListIssuesTool {
 
     async fn execute(&self, args: serde_json::Value) -> anyhow::Result<ToolResult> {
         let db_path = PathBuf::from(&self.config.db_path);
-        let tok = match load_token(&db_path) { Ok(t) => t, Err(e) => return Ok(e) };
+        let tok = match load_token(&db_path) {
+            Ok(t) => t,
+            Err(e) => return Ok(e),
+        };
 
         let repo = args["repo"].as_str().unwrap_or("").trim().to_string();
         if repo.is_empty() {
-            return Ok(ToolResult { success: false, output: String::new(), error: Some("repo is required".to_string()) });
+            return Ok(ToolResult {
+                success: false,
+                output: String::new(),
+                error: Some("repo is required".to_string()),
+                error_hint: None,
+            });
         }
 
-        let owner = match resolve_owner(&args, tok.username.as_deref()) { Ok(o) => o, Err(e) => return Ok(e) };
+        let owner = match resolve_owner(&args, tok.username.as_deref()) {
+            Ok(o) => o,
+            Err(e) => return Ok(e),
+        };
         let state = args["state"].as_str().unwrap_or("open");
         let limit = args["limit"].as_u64().unwrap_or(30);
-        let mut url = format!("{GITHUB_API_BASE}/repos/{owner}/{repo}/issues?state={state}&per_page={limit}");
+        let mut url =
+            format!("{GITHUB_API_BASE}/repos/{owner}/{repo}/issues?state={state}&per_page={limit}");
         if let Some(l) = args["labels"].as_str() {
             url.push_str(&format!("&labels={}", urlencoding::encode(l)));
         }
@@ -648,17 +716,29 @@ impl Tool for GitHubListPRsTool {
 
     async fn execute(&self, args: serde_json::Value) -> anyhow::Result<ToolResult> {
         let db_path = PathBuf::from(&self.config.db_path);
-        let tok = match load_token(&db_path) { Ok(t) => t, Err(e) => return Ok(e) };
+        let tok = match load_token(&db_path) {
+            Ok(t) => t,
+            Err(e) => return Ok(e),
+        };
 
         let repo = args["repo"].as_str().unwrap_or("").trim().to_string();
         if repo.is_empty() {
-            return Ok(ToolResult { success: false, output: String::new(), error: Some("repo is required".to_string()) });
+            return Ok(ToolResult {
+                success: false,
+                output: String::new(),
+                error: Some("repo is required".to_string()),
+                error_hint: None,
+            });
         }
 
-        let owner = match resolve_owner(&args, tok.username.as_deref()) { Ok(o) => o, Err(e) => return Ok(e) };
+        let owner = match resolve_owner(&args, tok.username.as_deref()) {
+            Ok(o) => o,
+            Err(e) => return Ok(e),
+        };
         let state = args["state"].as_str().unwrap_or("open");
         let limit = args["limit"].as_u64().unwrap_or(30);
-        let url = format!("{GITHUB_API_BASE}/repos/{owner}/{repo}/pulls?state={state}&per_page={limit}");
+        let url =
+            format!("{GITHUB_API_BASE}/repos/{owner}/{repo}/pulls?state={state}&per_page={limit}");
 
         github_get(&tok.token, &url).await
     }
@@ -700,15 +780,26 @@ impl Tool for GitHubGetIssueTool {
 
     async fn execute(&self, args: serde_json::Value) -> anyhow::Result<ToolResult> {
         let db_path = PathBuf::from(&self.config.db_path);
-        let tok = match load_token(&db_path) { Ok(t) => t, Err(e) => return Ok(e) };
+        let tok = match load_token(&db_path) {
+            Ok(t) => t,
+            Err(e) => return Ok(e),
+        };
 
         let repo = args["repo"].as_str().unwrap_or("").trim().to_string();
         let issue_number = args["issue_number"].as_u64().unwrap_or(0);
         if repo.is_empty() || issue_number == 0 {
-            return Ok(ToolResult { success: false, output: String::new(), error: Some("repo and issue_number are required".to_string()) });
+            return Ok(ToolResult {
+                success: false,
+                output: String::new(),
+                error: Some("repo and issue_number are required".to_string()),
+                error_hint: None,
+            });
         }
 
-        let owner = match resolve_owner(&args, tok.username.as_deref()) { Ok(o) => o, Err(e) => return Ok(e) };
+        let owner = match resolve_owner(&args, tok.username.as_deref()) {
+            Ok(o) => o,
+            Err(e) => return Ok(e),
+        };
         let url = format!("{GITHUB_API_BASE}/repos/{owner}/{repo}/issues/{issue_number}");
         github_get(&tok.token, &url).await
     }
@@ -750,15 +841,26 @@ impl Tool for GitHubGetPRTool {
 
     async fn execute(&self, args: serde_json::Value) -> anyhow::Result<ToolResult> {
         let db_path = PathBuf::from(&self.config.db_path);
-        let tok = match load_token(&db_path) { Ok(t) => t, Err(e) => return Ok(e) };
+        let tok = match load_token(&db_path) {
+            Ok(t) => t,
+            Err(e) => return Ok(e),
+        };
 
         let repo = args["repo"].as_str().unwrap_or("").trim().to_string();
         let pr_number = args["pr_number"].as_u64().unwrap_or(0);
         if repo.is_empty() || pr_number == 0 {
-            return Ok(ToolResult { success: false, output: String::new(), error: Some("repo and pr_number are required".to_string()) });
+            return Ok(ToolResult {
+                success: false,
+                output: String::new(),
+                error: Some("repo and pr_number are required".to_string()),
+                error_hint: None,
+            });
         }
 
-        let owner = match resolve_owner(&args, tok.username.as_deref()) { Ok(o) => o, Err(e) => return Ok(e) };
+        let owner = match resolve_owner(&args, tok.username.as_deref()) {
+            Ok(o) => o,
+            Err(e) => return Ok(e),
+        };
         let url = format!("{GITHUB_API_BASE}/repos/{owner}/{repo}/pulls/{pr_number}");
         github_get(&tok.token, &url).await
     }
@@ -804,6 +906,7 @@ impl Tool for GitHubConnectTool {
                     success: false,
                     output: String::new(),
                     error: Some(format!("Failed to open store DB: {e}")),
+                    error_hint: None,
                 })
             }
         };
@@ -818,6 +921,7 @@ impl Tool for GitHubConnectTool {
                          You can now create issues, PRs, and manage repositories."
                     ),
                     error: None,
+                    error_hint: None,
                 })
             }
             Ok(None) => {
@@ -830,12 +934,14 @@ impl Tool for GitHubConnectTool {
                          To connect your GitHub account, visit: {auth_url}\n\n\
                          After authenticating, tell me and I will retry."
                     )),
+                    error_hint: None,
                 })
             }
             Err(e) => Ok(ToolResult {
                 success: false,
                 output: String::new(),
                 error: Some(format!("Failed to check GitHub token: {e}")),
+                error_hint: None,
             }),
         }
     }
@@ -885,7 +991,10 @@ impl Tool for GitHubReviewPRWithChecklistTool {
 
     async fn execute(&self, args: serde_json::Value) -> anyhow::Result<ToolResult> {
         let db_path = PathBuf::from(&self.config.db_path);
-        let tok = match load_token(&db_path) { Ok(t) => t, Err(e) => return Ok(e) };
+        let tok = match load_token(&db_path) {
+            Ok(t) => t,
+            Err(e) => return Ok(e),
+        };
 
         let repo = args["repo"].as_str().unwrap_or("").trim().to_string();
         let pr_number = args["pr_number"].as_u64().unwrap_or(0);
@@ -897,10 +1006,14 @@ impl Tool for GitHubReviewPRWithChecklistTool {
                 success: false,
                 output: String::new(),
                 error: Some("repo, pr_number, checklist, and event are required".to_string()),
+                error_hint: None,
             });
         }
 
-        let owner = match resolve_owner(&args, tok.username.as_deref()) { Ok(o) => o, Err(e) => return Ok(e) };
+        let owner = match resolve_owner(&args, tok.username.as_deref()) {
+            Ok(o) => o,
+            Err(e) => return Ok(e),
+        };
 
         // Build review body from summary + formatted checklist
         let mut review_body = String::new();
@@ -912,7 +1025,9 @@ impl Tool for GitHubReviewPRWithChecklistTool {
 
         for line in checklist.lines() {
             let line = line.trim();
-            if line.is_empty() { continue; }
+            if line.is_empty() {
+                continue;
+            }
             if let Some(hash_pos) = line.find('#') {
                 let after_hash = &line[hash_pos..];
                 let parts: Vec<&str> = after_hash.split_whitespace().collect();
@@ -928,7 +1043,9 @@ impl Tool for GitHubReviewPRWithChecklistTool {
                         _ => "⏳",
                     };
                     review_body.push_str(&format!("{emoji} **{tag}**"));
-                    if !comment.is_empty() { review_body.push_str(&format!(" – {comment}")); }
+                    if !comment.is_empty() {
+                        review_body.push_str(&format!(" – {comment}"));
+                    }
                     review_body.push('\n');
                 } else {
                     review_body.push_str(line);
@@ -943,7 +1060,9 @@ impl Tool for GitHubReviewPRWithChecklistTool {
         let url = format!("{GITHUB_API_BASE}/repos/{owner}/{repo}/pulls/{pr_number}/reviews");
         let body = json!({ "body": review_body, "event": event });
         let result = github_post_api(&tok.token, &url, body).await?;
-        if !result.success { return Ok(result); }
+        if !result.success {
+            return Ok(result);
+        }
 
         let parsed: serde_json::Value = serde_json::from_str(&result.output).unwrap_or_default();
         let state = parsed["state"].as_str().unwrap_or(&event);
@@ -951,8 +1070,11 @@ impl Tool for GitHubReviewPRWithChecklistTool {
 
         Ok(ToolResult {
             success: true,
-            output: format!("Review #{review_id} submitted ({state}) on PR #{pr_number} with checklist"),
+            output: format!(
+                "Review #{review_id} submitted ({state}) on PR #{pr_number} with checklist"
+            ),
             error: None,
+            error_hint: None,
         })
     }
 }
@@ -996,43 +1118,74 @@ impl Tool for GitHubCreateIssueWithHashtagsTool {
 
     async fn execute(&self, args: serde_json::Value) -> anyhow::Result<ToolResult> {
         let db_path = PathBuf::from(&self.config.db_path);
-        let tok = match load_token(&db_path) { Ok(t) => t, Err(e) => return Ok(e) };
+        let tok = match load_token(&db_path) {
+            Ok(t) => t,
+            Err(e) => return Ok(e),
+        };
 
         let repo = args["repo"].as_str().unwrap_or("").trim().to_string();
         let message = args["message"].as_str().unwrap_or("").trim().to_string();
         if repo.is_empty() || message.is_empty() {
-            return Ok(ToolResult { success: false, output: String::new(), error: Some("repo and message are required".to_string()) });
+            return Ok(ToolResult {
+                success: false,
+                output: String::new(),
+                error: Some("repo and message are required".to_string()),
+                error_hint: None,
+            });
         }
 
-        let owner = match resolve_owner(&args, tok.username.as_deref()) { Ok(o) => o, Err(e) => return Ok(e) };
+        let owner = match resolve_owner(&args, tok.username.as_deref()) {
+            Ok(o) => o,
+            Err(e) => return Ok(e),
+        };
         let labels = extract_hashtags(&message);
         let title = if let Some(t) = args["title"].as_str().filter(|s| !s.is_empty()) {
             t.to_string()
         } else {
-            message.split_whitespace().filter(|w| !w.starts_with('#')).collect::<Vec<_>>().join(" ")
+            message
+                .split_whitespace()
+                .filter(|w| !w.starts_with('#'))
+                .collect::<Vec<_>>()
+                .join(" ")
         };
 
         if title.is_empty() {
-            return Ok(ToolResult { success: false, output: String::new(), error: Some("Could not extract title. Provide an explicit title.".to_string()) });
+            return Ok(ToolResult {
+                success: false,
+                output: String::new(),
+                error: Some("Could not extract title. Provide an explicit title.".to_string()),
+                error_hint: None,
+            });
         }
 
         let url = format!("{GITHUB_API_BASE}/repos/{owner}/{repo}/issues");
         let mut body = json!({ "title": title });
-        if let Some(v) = args["body"].as_str() { body["body"] = json!(v); }
-        if !labels.is_empty() { body["labels"] = json!(labels); }
+        if let Some(v) = args["body"].as_str() {
+            body["body"] = json!(v);
+        }
+        if !labels.is_empty() {
+            body["labels"] = json!(labels);
+        }
 
         let result = github_post_api(&tok.token, &url, body).await?;
-        if !result.success { return Ok(result); }
+        if !result.success {
+            return Ok(result);
+        }
 
         let parsed: serde_json::Value = serde_json::from_str(&result.output).unwrap_or_default();
         let issue_url = parsed["html_url"].as_str().unwrap_or("");
         let issue_num = parsed["number"].as_u64().unwrap_or(0);
-        let labels_str = if labels.is_empty() { "no labels".to_string() } else { labels.join(", ") };
+        let labels_str = if labels.is_empty() {
+            "no labels".to_string()
+        } else {
+            labels.join(", ")
+        };
 
         Ok(ToolResult {
             success: true,
             output: format!("Issue #{issue_num} created: {issue_url} (labels: {labels_str})"),
             error: None,
+            error_hint: None,
         })
     }
 }
@@ -1073,18 +1226,31 @@ impl Tool for GitHubAnalyzePRTool {
 
     async fn execute(&self, args: serde_json::Value) -> anyhow::Result<ToolResult> {
         let db_path = PathBuf::from(&self.config.db_path);
-        let tok = match load_token(&db_path) { Ok(t) => t, Err(e) => return Ok(e) };
+        let tok = match load_token(&db_path) {
+            Ok(t) => t,
+            Err(e) => return Ok(e),
+        };
 
         let repo = args["repo"].as_str().unwrap_or("").trim().to_string();
         let pr_number = args["pr_number"].as_u64().unwrap_or(0);
         if repo.is_empty() || pr_number == 0 {
-            return Ok(ToolResult { success: false, output: String::new(), error: Some("repo and pr_number are required".to_string()) });
+            return Ok(ToolResult {
+                success: false,
+                output: String::new(),
+                error: Some("repo and pr_number are required".to_string()),
+                error_hint: None,
+            });
         }
 
-        let owner = match resolve_owner(&args, tok.username.as_deref()) { Ok(o) => o, Err(e) => return Ok(e) };
+        let owner = match resolve_owner(&args, tok.username.as_deref()) {
+            Ok(o) => o,
+            Err(e) => return Ok(e),
+        };
         let url = format!("{GITHUB_API_BASE}/repos/{owner}/{repo}/pulls/{pr_number}");
         let result = github_get(&tok.token, &url).await?;
-        if !result.success { return Ok(result); }
+        if !result.success {
+            return Ok(result);
+        }
 
         let parsed: serde_json::Value = serde_json::from_str(&result.output).unwrap_or_default();
         let title = parsed["title"].as_str().unwrap_or("").to_lowercase();
@@ -1092,23 +1258,50 @@ impl Tool for GitHubAnalyzePRTool {
         let combined = format!("{title} {body_text}");
 
         let mut suggestions = Vec::new();
-        if combined.contains("security") || combined.contains("auth") { suggestions.push(("#security", "PR contains security-related changes")); }
-        if combined.contains("test") || combined.contains("spec") { suggestions.push(("#tests", "PR may need test coverage verification")); }
-        if combined.contains("performance") || combined.contains("cache") { suggestions.push(("#performance", "PR contains performance-related changes")); }
-        if combined.contains("ui") || combined.contains("css") || combined.contains("style") { suggestions.push(("#ui", "PR contains UI/visual changes")); }
-        if combined.contains("doc") || combined.contains("readme") { suggestions.push(("#docs", "PR contains documentation changes")); }
-        if combined.contains("api") || combined.contains("endpoint") { suggestions.push(("#api", "PR contains API changes")); }
-        if combined.contains("database") || combined.contains("sql") { suggestions.push(("#database", "PR contains database changes")); }
-        if combined.contains("bug") || combined.contains("fix") { suggestions.push(("#bug", "PR is a bug fix")); }
-        if combined.contains("feature") || combined.contains("add") { suggestions.push(("#feature", "PR is a new feature")); }
+        if combined.contains("security") || combined.contains("auth") {
+            suggestions.push(("#security", "PR contains security-related changes"));
+        }
+        if combined.contains("test") || combined.contains("spec") {
+            suggestions.push(("#tests", "PR may need test coverage verification"));
+        }
+        if combined.contains("performance") || combined.contains("cache") {
+            suggestions.push(("#performance", "PR contains performance-related changes"));
+        }
+        if combined.contains("ui") || combined.contains("css") || combined.contains("style") {
+            suggestions.push(("#ui", "PR contains UI/visual changes"));
+        }
+        if combined.contains("doc") || combined.contains("readme") {
+            suggestions.push(("#docs", "PR contains documentation changes"));
+        }
+        if combined.contains("api") || combined.contains("endpoint") {
+            suggestions.push(("#api", "PR contains API changes"));
+        }
+        if combined.contains("database") || combined.contains("sql") {
+            suggestions.push(("#database", "PR contains database changes"));
+        }
+        if combined.contains("bug") || combined.contains("fix") {
+            suggestions.push(("#bug", "PR is a bug fix"));
+        }
+        if combined.contains("feature") || combined.contains("add") {
+            suggestions.push(("#feature", "PR is a new feature"));
+        }
         suggestions.push(("#code", "General code review needed"));
 
         let output = format!(
             "PR #{pr_number} Analysis — Suggested Review Checklist:\n\n{}",
-            suggestions.iter().map(|(tag, reason)| format!("{tag} – {reason}")).collect::<Vec<_>>().join("\n")
+            suggestions
+                .iter()
+                .map(|(tag, reason)| format!("{tag} – {reason}"))
+                .collect::<Vec<_>>()
+                .join("\n")
         );
 
-        Ok(ToolResult { success: true, output, error: None })
+        Ok(ToolResult {
+            success: true,
+            output,
+            error: None,
+            error_hint: None,
+        })
     }
 }
 
@@ -1156,6 +1349,7 @@ impl Tool for GitHubUploadImageTool {
                 success: false,
                 output: String::new(),
                 error: Some("image_data and filename are required".to_string()),
+                error_hint: None,
             });
         }
 
@@ -1176,13 +1370,17 @@ impl Tool for GitHubUploadImageTool {
             .map_err(|e| anyhow::anyhow!("Imgur upload failed: {e}"))?;
 
         let status = resp.status();
-        let resp_body = resp.text().await.unwrap_or_else(|_| "<unreadable>".to_string());
+        let resp_body = resp
+            .text()
+            .await
+            .unwrap_or_else(|_| "<unreadable>".to_string());
 
         if !status.is_success() {
             return Ok(ToolResult {
                 success: false,
                 output: String::new(),
                 error: Some(format!("Imgur API returned {status}: {resp_body}")),
+                error_hint: None,
             });
         }
 
@@ -1194,6 +1392,7 @@ impl Tool for GitHubUploadImageTool {
             success: true,
             output: format!("Image uploaded: {link}\nMarkdown: {markdown}"),
             error: None,
+            error_hint: None,
         })
     }
 }
@@ -1271,17 +1470,21 @@ impl Tool for GitHubEditIssueTool {
         let repo = args["repo"].as_str().unwrap_or("").trim().to_string();
         let issue_number = match args["issue_number"].as_u64() {
             Some(n) => n,
-            None => return Ok(ToolResult {
-                success: false,
-                output: String::new(),
-                error: Some("issue_number is required".to_string()),
-            }),
+            None => {
+                return Ok(ToolResult {
+                    success: false,
+                    output: String::new(),
+                    error: Some("issue_number is required".to_string()),
+                    error_hint: None,
+                })
+            }
         };
         if repo.is_empty() {
             return Ok(ToolResult {
                 success: false,
                 output: String::new(),
                 error: Some("repo is required".to_string()),
+                error_hint: None,
             });
         }
 
@@ -1292,10 +1495,18 @@ impl Tool for GitHubEditIssueTool {
 
         let url = format!("{GITHUB_API_BASE}/repos/{owner}/{repo}/issues/{issue_number}");
         let mut patch = json!({});
-        if let Some(v) = args["title"].as_str() { patch["title"] = json!(v); }
-        if let Some(v) = args["body"].as_str() { patch["body"] = json!(v); }
-        if let Some(v) = args["labels"].as_array() { patch["labels"] = json!(v); }
-        if let Some(v) = args["state"].as_str() { patch["state"] = json!(v); }
+        if let Some(v) = args["title"].as_str() {
+            patch["title"] = json!(v);
+        }
+        if let Some(v) = args["body"].as_str() {
+            patch["body"] = json!(v);
+        }
+        if let Some(v) = args["labels"].as_array() {
+            patch["labels"] = json!(v);
+        }
+        if let Some(v) = args["state"].as_str() {
+            patch["state"] = json!(v);
+        }
 
         let result = github_patch_api(&tok.token, &url, patch).await?;
         if !result.success {
@@ -1309,6 +1520,7 @@ impl Tool for GitHubEditIssueTool {
             success: true,
             output: format!("Issue #{issue_number} updated: {issue_url}"),
             error: None,
+            error_hint: None,
         })
     }
 }
@@ -1377,11 +1589,14 @@ impl Tool for GitHubCloseIssueTool {
         let repo = args["repo"].as_str().unwrap_or("").trim().to_string();
         let issue_number = match args["issue_number"].as_u64() {
             Some(n) => n,
-            None => return Ok(ToolResult {
-                success: false,
-                output: String::new(),
-                error: Some("issue_number is required".to_string()),
-            }),
+            None => {
+                return Ok(ToolResult {
+                    success: false,
+                    output: String::new(),
+                    error: Some("issue_number is required".to_string()),
+                    error_hint: None,
+                })
+            }
         };
         let comment = args["comment"].as_str().unwrap_or("").trim().to_string();
         if repo.is_empty() {
@@ -1389,6 +1604,7 @@ impl Tool for GitHubCloseIssueTool {
                 success: false,
                 output: String::new(),
                 error: Some("repo is required".to_string()),
+                error_hint: None,
             });
         }
         if comment.is_empty() {
@@ -1396,6 +1612,7 @@ impl Tool for GitHubCloseIssueTool {
                 success: false,
                 output: String::new(),
                 error: Some("comment is required — explain the resolution in English".to_string()),
+                error_hint: None,
             });
         }
 
@@ -1405,15 +1622,10 @@ impl Tool for GitHubCloseIssueTool {
         };
 
         // 1. Post the resolution comment first.
-        let comment_url = format!(
-            "{GITHUB_API_BASE}/repos/{owner}/{repo}/issues/{issue_number}/comments"
-        );
-        let comment_result = github_post_api(
-            &tok.token,
-            &comment_url,
-            json!({ "body": comment }),
-        )
-        .await?;
+        let comment_url =
+            format!("{GITHUB_API_BASE}/repos/{owner}/{repo}/issues/{issue_number}/comments");
+        let comment_result =
+            github_post_api(&tok.token, &comment_url, json!({ "body": comment })).await?;
         if !comment_result.success {
             return Ok(comment_result);
         }
@@ -1437,6 +1649,7 @@ impl Tool for GitHubCloseIssueTool {
             success: true,
             output: format!("Issue #{issue_number} closed: {html_url}"),
             error: None,
+            error_hint: None,
         })
     }
 }
@@ -1465,7 +1678,11 @@ mod tests {
         let tool = GitHubConnectTool::new(config);
         let result = tool.execute(json!({})).await.unwrap();
         assert!(!result.success);
-        assert!(result.error.as_deref().unwrap_or("").contains("not connected"));
+        assert!(result
+            .error
+            .as_deref()
+            .unwrap_or("")
+            .contains("not connected"));
     }
 
     #[tokio::test]
@@ -1487,9 +1704,16 @@ mod tests {
         let config = make_config(&tmp);
         store::init_db(&PathBuf::from(&config.db_path)).unwrap();
         let tool = GitHubCreateIssueTool::new(config);
-        let result = tool.execute(json!({"repo": "test", "title": "Test"})).await.unwrap();
+        let result = tool
+            .execute(json!({"repo": "test", "title": "Test"}))
+            .await
+            .unwrap();
         assert!(!result.success);
-        assert!(result.error.as_deref().unwrap_or("").contains("not connected"));
+        assert!(result
+            .error
+            .as_deref()
+            .unwrap_or("")
+            .contains("not connected"));
     }
 
     #[test]

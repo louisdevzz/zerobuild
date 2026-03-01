@@ -11,9 +11,7 @@ use std::collections::HashMap;
 pub fn load_snapshot(
     conn: &Connection,
 ) -> Result<Option<(HashMap<String, String>, Option<String>)>> {
-    let mut stmt = conn.prepare(
-        "SELECT files, project_type FROM snapshots WHERE id = 1",
-    )?;
+    let mut stmt = conn.prepare("SELECT files, project_type FROM snapshots WHERE id = 1")?;
 
     let result = stmt
         .query_row([], |row| {
@@ -26,9 +24,8 @@ pub fn load_snapshot(
     match result {
         None => Ok(None),
         Some((files_json, project_type)) => {
-            let files: HashMap<String, String> =
-                serde_json::from_str(&files_json)
-                    .map_err(|e| anyhow::anyhow!("Failed to deserialize snapshot: {e}"))?;
+            let files: HashMap<String, String> = serde_json::from_str(&files_json)
+                .map_err(|e| anyhow::anyhow!("Failed to deserialize snapshot: {e}"))?;
             Ok(Some((files, project_type)))
         }
     }

@@ -60,6 +60,7 @@ impl Tool for SandboxRunCommandTool {
                     success: false,
                     output: String::new(),
                     error: Some(e),
+                    error_hint: None,
                 })
             }
         };
@@ -73,6 +74,7 @@ impl Tool for SandboxRunCommandTool {
                 success: false,
                 output: String::new(),
                 error: Some("command cannot be empty".to_string()),
+                error_hint: None,
             });
         }
 
@@ -97,12 +99,14 @@ impl Tool for SandboxRunCommandTool {
                         success: true,
                         output: out,
                         error: None,
+                        error_hint: None,
                     })
                 } else {
                     Ok(ToolResult {
                         success: false,
                         output: out,
                         error: Some(format!("Command exited with code {exit_code}")),
+                        error_hint: None,
                     })
                 }
             }
@@ -110,6 +114,7 @@ impl Tool for SandboxRunCommandTool {
                 success: false,
                 output: String::new(),
                 error: Some(format!("Failed to run command: {e}")),
+                error_hint: None,
             }),
         }
     }

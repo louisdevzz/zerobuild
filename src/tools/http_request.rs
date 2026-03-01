@@ -207,6 +207,7 @@ impl Tool for HttpRequestTool {
                 success: false,
                 output: String::new(),
                 error: Some("Action blocked: autonomy is read-only".into()),
+                error_hint: None,
             });
         }
 
@@ -215,6 +216,7 @@ impl Tool for HttpRequestTool {
                 success: false,
                 output: String::new(),
                 error: Some("Action blocked: rate limit exceeded".into()),
+                error_hint: None,
             });
         }
 
@@ -225,6 +227,7 @@ impl Tool for HttpRequestTool {
                     success: false,
                     output: String::new(),
                     error: Some(e.to_string()),
+                    error_hint: None,
                 })
             }
         };
@@ -236,6 +239,7 @@ impl Tool for HttpRequestTool {
                     success: false,
                     output: String::new(),
                     error: Some(e.to_string()),
+                    error_hint: None,
                 })
             }
         };
@@ -286,12 +290,14 @@ impl Tool for HttpRequestTool {
                     } else {
                         None
                     },
+                    error_hint: None,
                 })
             }
             Err(e) => Ok(ToolResult {
                 success: false,
                 output: String::new(),
                 error: Some(format!("HTTP request failed: {e}")),
+                error_hint: None,
             }),
         }
     }

@@ -358,6 +358,93 @@ pub fn create_response_cache(config: &MemoryConfig, workspace_dir: &Path) -> Opt
     }
 }
 
+// ── Project Context Helpers ──────────────────────────────────────────────
+
+/// Active project context stored in memory for session resumption
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ActiveProject {
+    pub name: String,
+    pub description: String,
+    pub tech_stack: String,
+    pub github_repo: Option<String>,
+    pub preview_url: Option<String>,
+    pub status: ProjectStatus,
+    pub last_updated: String,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ProjectStatus {
+    InProgress,
+    Completed,
+}
+
+impl std::fmt::Display for ProjectStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ProjectStatus::InProgress => write!(f, "in_progress"),
+            ProjectStatus::Completed => write!(f, "completed"),
+        }
+    }
+}
+
+/// Key used to store/retrieve active project from memory
+pub const ACTIVE_PROJECT_KEY: &str = "active_project";
+
+/// Save the active project context to memory
+pub async fn save_project_context(
+    memory: &dyn Memory,
+    project: &ActiveProject,
+) -> anyhow::Result<()> {
+    let content = serde_json::to_string(project)?;
+    memory
+        .store(
+            ACTIVE_PROJECT_KEY,
+            &content,
+            MemoryCategory::Core,
+            None, // Not session-scoped — persists across sessions
+        )
+        .await
+}
+
+/// Load the active project context from memory
+pub async fn load_project_context(memory: &dyn Memory) -> anyhow::Result<Option<ActiveProject>> {
+    match memory.get(ACTIVE_PROJECT_KEY).await? {
+        Some(entry) => {
+            let project: ActiveProject = serde_json::from_str(&entry.content)?;
+            Ok(Some(project))
+        }
+        None => Ok(None),
+    }
+}
+
+/// Clear the active project context from memory
+pub async fn clear_project_context(memory: &dyn Memory) -> anyhow::Result<bool> {
+    memory.forget(ACTIVE_PROJECT_KEY).await
+}
+
+/// Format active project context for injection into system prompt
+pub fn format_project_context_for_prompt(project: &ActiveProject) -> String {
+    let mut context = format!(
+        "[Active Project: {}]\nTechnology: {}\nStatus: {}\nLast Updated: {}",
+        project.name, project.tech_stack, project.status, project.last_updated
+    );
+
+    if !project.description.is_empty() {
+        context.push_str(&format!("\nDescription: {}", project.description));
+    }
+
+    if let Some(repo) = &project.github_repo {
+        context.push_str(&format!("\nGitHub: {repo}"));
+    }
+
+    if let Some(url) = &project.preview_url {
+        context.push_str(&format!("\nPreview: {url}"));
+    }
+
+    context
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

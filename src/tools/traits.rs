@@ -7,6 +7,9 @@ pub struct ToolResult {
     pub success: bool,
     pub output: String,
     pub error: Option<String>,
+    /// Optional hint for error recovery, providing suggested remediation
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub error_hint: Option<String>,
 }
 
 /// Description of a tool for the LLM
@@ -76,6 +79,7 @@ mod tests {
                     .unwrap_or_default()
                     .to_string(),
                 error: None,
+                error_hint: None,
             })
         }
     }
@@ -110,6 +114,7 @@ mod tests {
             success: false,
             output: String::new(),
             error: Some("boom".into()),
+            error_hint: Some("Try checking your dependencies".into()),
         };
 
         let json = serde_json::to_string(&result).unwrap();
@@ -117,5 +122,9 @@ mod tests {
 
         assert!(!parsed.success);
         assert_eq!(parsed.error.as_deref(), Some("boom"));
+        assert_eq!(
+            parsed.error_hint.as_deref(),
+            Some("Try checking your dependencies")
+        );
     }
 }

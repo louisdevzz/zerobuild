@@ -916,15 +916,16 @@ impl OpenAiCompatibleProvider {
             .iter()
             .map(|message| {
                 if message.role == "assistant" {
-                    if let Ok(value) = serde_json::from_str::<serde_json::Value>(&message.content)
-                    {
+                    if let Ok(value) = serde_json::from_str::<serde_json::Value>(&message.content) {
                         // Check if this is a structured assistant message (with tool_calls and/or reasoning_content)
-                        if value.get("tool_calls").is_some() || value.get("reasoning_content").is_some() {
+                        if value.get("tool_calls").is_some()
+                            || value.get("reasoning_content").is_some()
+                        {
                             // Parse tool_calls if present
                             let tool_calls = value.get("tool_calls").and_then(|tcv| {
                                 serde_json::from_value::<Vec<ProviderToolCall>>(tcv.clone()).ok()
                             });
-                            
+
                             let tool_calls = tool_calls.map(|parsed_calls| {
                                 parsed_calls
                                     .into_iter()

@@ -288,6 +288,7 @@ impl Tool for BgRunTool {
                 success: false,
                 output: String::new(),
                 error: Some("'arguments' must be an object".to_string()),
+                error_hint: None,
             });
         }
 
@@ -299,6 +300,7 @@ impl Tool for BgRunTool {
                     success: false,
                     output: String::new(),
                     error: Some(format!("unknown tool: {tool_name}")),
+                    error_hint: None,
                 });
             }
         };
@@ -309,6 +311,7 @@ impl Tool for BgRunTool {
                 success: false,
                 output: String::new(),
                 error: Some("cannot run bg_run or bg_status in background".to_string()),
+                error_hint: None,
             });
         }
 
@@ -322,6 +325,7 @@ impl Tool for BgRunTool {
                     "Maximum concurrent background jobs reached ({MAX_CONCURRENT_JOBS}). \
                      Wait for existing jobs to complete."
                 )),
+                error_hint: None,
             });
         }
 
@@ -407,6 +411,7 @@ impl Tool for BgRunTool {
             success: true,
             output: serde_json::to_string_pretty(&output).unwrap_or_default(),
             error: None,
+            error_hint: None,
         })
     }
 }
@@ -463,6 +468,7 @@ impl Tool for BgStatusTool {
                         success: false,
                         output: String::new(),
                         error: Some(format!("job not found: {id}")),
+                        error_hint: None,
                     });
                 }
             }
@@ -481,6 +487,7 @@ impl Tool for BgStatusTool {
             success: true,
             output,
             error: None,
+            error_hint: None,
         })
     }
 }

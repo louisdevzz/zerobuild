@@ -45,6 +45,7 @@ impl Tool for SandboxKillTool {
                 success: true,
                 output: "No active sandbox to kill.".to_string(),
                 error: None,
+                error_hint: None,
             });
         }
 
@@ -53,11 +54,13 @@ impl Tool for SandboxKillTool {
                 success: true,
                 output: msg,
                 error: None,
+                error_hint: None,
             }),
             Err(e) => Ok(ToolResult {
                 success: false,
                 output: String::new(),
                 error: Some(format!("Failed to kill sandbox: {e}")),
+                error_hint: None,
             }),
         }
     }

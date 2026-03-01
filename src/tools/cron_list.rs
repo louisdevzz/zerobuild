@@ -38,6 +38,7 @@ impl Tool for CronListTool {
             return Ok(ToolResult {
                 success: false,
                 output: String::new(),
+                error_hint: None,
                 error: Some("cron is disabled by config (cron.enabled=false)".to_string()),
             });
         }
@@ -46,11 +47,13 @@ impl Tool for CronListTool {
             Ok(jobs) => Ok(ToolResult {
                 success: true,
                 output: serde_json::to_string_pretty(&jobs)?,
+                error_hint: None,
                 error: None,
             }),
             Err(e) => Ok(ToolResult {
                 success: false,
                 output: String::new(),
+                error_hint: None,
                 error: Some(e.to_string()),
             }),
         }

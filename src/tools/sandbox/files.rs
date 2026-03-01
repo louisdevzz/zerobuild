@@ -53,6 +53,7 @@ impl Tool for SandboxWriteFileTool {
                 success: false,
                 output: String::new(),
                 error: Some(e),
+                error_hint: None,
             });
         }
 
@@ -69,11 +70,13 @@ impl Tool for SandboxWriteFileTool {
                 success: true,
                 output: format!("File written: {path}"),
                 error: None,
+                error_hint: None,
             }),
             Err(e) => Ok(ToolResult {
                 success: false,
                 output: String::new(),
                 error: Some(format!("Failed to write file: {e}")),
+                error_hint: None,
             }),
         }
     }
@@ -122,6 +125,7 @@ impl Tool for SandboxReadFileTool {
                 success: false,
                 output: String::new(),
                 error: Some(e),
+                error_hint: None,
             });
         }
 
@@ -134,11 +138,13 @@ impl Tool for SandboxReadFileTool {
                 success: true,
                 output: content,
                 error: None,
+                error_hint: None,
             }),
             Err(e) => Ok(ToolResult {
                 success: false,
                 output: String::new(),
                 error: Some(format!("Failed to read file: {e}")),
+                error_hint: None,
             }),
         }
     }
@@ -187,6 +193,7 @@ impl Tool for SandboxListFilesTool {
                 success: false,
                 output: String::new(),
                 error: Some(e),
+                error_hint: None,
             });
         }
 
@@ -199,11 +206,13 @@ impl Tool for SandboxListFilesTool {
                 success: true,
                 output: listing,
                 error: None,
+                error_hint: None,
             }),
             Err(e) => Ok(ToolResult {
                 success: false,
                 output: String::new(),
                 error: Some(format!("Failed to list files: {e}")),
+                error_hint: None,
             }),
         }
     }
@@ -216,8 +225,17 @@ mod tests {
     #[test]
     fn tool_names() {
         let client = Arc::new(crate::sandbox::e2b::E2bSandboxClient::new(""));
-        assert_eq!(SandboxWriteFileTool::new(client.clone()).name(), "sandbox_write_file");
-        assert_eq!(SandboxReadFileTool::new(client.clone()).name(), "sandbox_read_file");
-        assert_eq!(SandboxListFilesTool::new(client).name(), "sandbox_list_files");
+        assert_eq!(
+            SandboxWriteFileTool::new(client.clone()).name(),
+            "sandbox_write_file"
+        );
+        assert_eq!(
+            SandboxReadFileTool::new(client.clone()).name(),
+            "sandbox_read_file"
+        );
+        assert_eq!(
+            SandboxListFilesTool::new(client).name(),
+            "sandbox_list_files"
+        );
     }
 }

@@ -7,9 +7,7 @@ use rusqlite::{params, Connection, OptionalExtension};
 
 /// Load the persisted sandbox_id, if any.
 pub fn load_sandbox_id(conn: &Connection) -> Result<Option<String>> {
-    let mut stmt = conn.prepare(
-        "SELECT sandbox_id FROM sandbox_session WHERE id = 1",
-    )?;
+    let mut stmt = conn.prepare("SELECT sandbox_id FROM sandbox_session WHERE id = 1")?;
 
     let result = stmt.query_row([], |row| row.get(0)).optional()?;
     Ok(result)

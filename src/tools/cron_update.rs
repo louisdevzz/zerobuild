@@ -21,6 +21,7 @@ impl CronUpdateTool {
             return Some(ToolResult {
                 success: false,
                 output: String::new(),
+                error_hint: None,
                 error: Some(format!(
                     "Security policy: read-only mode, cannot perform '{action}'"
                 )),
@@ -31,6 +32,7 @@ impl CronUpdateTool {
             return Some(ToolResult {
                 success: false,
                 output: String::new(),
+                error_hint: None,
                 error: Some("Rate limit exceeded: too many actions in the last hour".to_string()),
             });
         }
@@ -39,6 +41,7 @@ impl CronUpdateTool {
             return Some(ToolResult {
                 success: false,
                 output: String::new(),
+                error_hint: None,
                 error: Some("Rate limit exceeded: action budget exhausted".to_string()),
             });
         }
@@ -78,6 +81,7 @@ impl Tool for CronUpdateTool {
             return Ok(ToolResult {
                 success: false,
                 output: String::new(),
+                error_hint: None,
                 error: Some("cron is disabled by config (cron.enabled=false)".to_string()),
             });
         }
@@ -88,6 +92,7 @@ impl Tool for CronUpdateTool {
                 return Ok(ToolResult {
                     success: false,
                     output: String::new(),
+                    error_hint: None,
                     error: Some("Missing 'job_id' parameter".to_string()),
                 });
             }
@@ -99,6 +104,7 @@ impl Tool for CronUpdateTool {
                 return Ok(ToolResult {
                     success: false,
                     output: String::new(),
+                    error_hint: None,
                     error: Some("Missing 'patch' parameter".to_string()),
                 });
             }
@@ -110,6 +116,7 @@ impl Tool for CronUpdateTool {
                 return Ok(ToolResult {
                     success: false,
                     output: String::new(),
+                    error_hint: None,
                     error: Some(format!("Invalid patch payload: {e}")),
                 });
             }
@@ -124,6 +131,7 @@ impl Tool for CronUpdateTool {
                 return Ok(ToolResult {
                     success: false,
                     output: String::new(),
+                    error_hint: None,
                     error: Some(reason),
                 });
             }
@@ -137,11 +145,13 @@ impl Tool for CronUpdateTool {
             Ok(job) => Ok(ToolResult {
                 success: true,
                 output: serde_json::to_string_pretty(&job)?,
+                error_hint: None,
                 error: None,
             }),
             Err(e) => Ok(ToolResult {
                 success: false,
                 output: String::new(),
+                error_hint: None,
                 error: Some(e.to_string()),
             }),
         }

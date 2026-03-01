@@ -37,10 +37,9 @@ impl Tool for GitHubPushTool {
     }
 
     fn description(&self) -> &str {
-        "Push the current project to GitHub. Creates a new repository if it doesn't exist, \
-         or updates the existing repository with the current snapshot. \
-         Part of the GitHub connector - requires GitHub authentication (use github_connect first). \
-         Returns the repository URL."
+        "Push the current project snapshot to GitHub. Creates a new repository if it doesn't \
+         exist, or pushes to an existing one. Supports custom branch and owner. \
+         Requires GitHub authentication (use github_connect first). Returns the repository URL."
     }
 
     fn parameters_schema(&self) -> serde_json::Value {
@@ -49,7 +48,15 @@ impl Tool for GitHubPushTool {
             "properties": {
                 "project_name": {
                     "type": "string",
-                    "description": "Desired GitHub repo name (lowercase, hyphens). Example: my-landing-page"
+                    "description": "GitHub repo name (lowercase, hyphens). Example: my-landing-page"
+                },
+                "branch": {
+                    "type": "string",
+                    "description": "Target branch to push to. Default: main. Branch is created if it does not exist."
+                },
+                "owner": {
+                    "type": "string",
+                    "description": "Repository owner (GitHub user or org). Default: authenticated GitHub user."
                 },
                 "commit_message": {
                     "type": "string",
@@ -77,8 +84,10 @@ impl Tool for GitHubPushTool {
                     success: false,
                     output: String::new(),
                     error: Some(
-                        "GitHub is not connected. Use github_connect to authenticate first.".to_string(),
+                        "GitHub is not connected. Use github_connect to authenticate first."
+                            .to_string(),
                     ),
+                    error_hint: None,
                 })
             }
             Err(e) => {
@@ -86,32 +95,36 @@ impl Tool for GitHubPushTool {
                     success: false,
                     output: String::new(),
                     error: Some(format!("Failed to load GitHub token: {e}")),
+                    error_hint: None,
                 })
             }
         };
 
         // 2. Load snapshot
-        let snapshot: (std::collections::HashMap<String, String>, Option<String>) = match store::snapshot::load_snapshot(&conn) {
-            Ok(Some(s)) => s,
-            Ok(None) => {
-                return Ok(ToolResult {
-                    success: false,
-                    output: String::new(),
-                    error: Some(
-                        "No project snapshot found. Build a project first with the E2B tools, \
+        let snapshot: (std::collections::HashMap<String, String>, Option<String>) =
+            match store::snapshot::load_snapshot(&conn) {
+                Ok(Some(s)) => s,
+                Ok(None) => {
+                    return Ok(ToolResult {
+                        success: false,
+                        output: String::new(),
+                        error: Some(
+                            "No project snapshot found. Build a project first with the E2B tools, \
                          then call e2b_save_snapshot before deploying."
-                            .to_string(),
-                    ),
-                })
-            }
-            Err(e) => {
-                return Ok(ToolResult {
-                    success: false,
-                    output: String::new(),
-                    error: Some(format!("Failed to load snapshot: {e}")),
-                })
-            }
-        };
+                                .to_string(),
+                        ),
+                        error_hint: None,
+                    })
+                }
+                Err(e) => {
+                    return Ok(ToolResult {
+                        success: false,
+                        output: String::new(),
+                        error: Some(format!("Failed to load snapshot: {e}")),
+                        error_hint: None,
+                    })
+                }
+            };
 
         let (files, _project_type) = snapshot;
         let project_name = args["project_name"]
@@ -120,19 +133,34 @@ impl Tool for GitHubPushTool {
             .trim()
             .to_lowercase()
             .replace(' ', "-");
+        let branch = {
+            let b = args["branch"].as_str().unwrap_or("main").trim().to_string();
+            if b.is_empty() {
+                "main".to_string()
+            } else {
+                b
+            }
+        };
         let commit_message = args["commit_message"]
             .as_str()
             .unwrap_or("Deploy from ZeroBuild");
         let private = args["private"].as_bool().unwrap_or(false);
 
-        let owner = tok.username.as_deref().unwrap_or("").to_string();
+        // Owner: explicit arg takes priority, fall back to authenticated user
+        let owner = args["owner"]
+            .as_str()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| tok.username.as_deref().unwrap_or("").to_string());
         if owner.is_empty() {
             return Ok(ToolResult {
                 success: false,
                 output: String::new(),
                 error: Some(
-                    "GitHub username not found. Please reconnect GitHub via github_connect.".to_string(),
+                    "GitHub username not found. Please reconnect GitHub via github_connect."
+                        .to_string(),
                 ),
+                error_hint: None,
             });
         }
 
@@ -178,21 +206,23 @@ impl Tool for GitHubPushTool {
                     success: false,
                     output: String::new(),
                     error: Some(format!("Failed to create repository: {err}")),
+                    error_hint: None,
                 });
             }
         }
 
-        // 4. Get or create default branch ref
-        let base_tree_sha = get_or_create_base_tree(
-            &client, token, &owner, &project_name,
-        ).await?;
+        // 4. Get or create target branch ref
+        let base_tree_sha =
+            get_or_create_base_tree(&client, token, &owner, &project_name, &branch).await?;
 
         // 5. Create git blobs for all files
         let mut tree_entries: Vec<serde_json::Value> = Vec::new();
         for (file_path, content) in &files {
             // Strip leading workdir prefix from paths (e.g. /home/user/project/)
             let relative_path = strip_workdir_prefix(file_path);
-            if relative_path.is_empty() { continue; }
+            if relative_path.is_empty() {
+                continue;
+            }
 
             let blob_url = format!("{GITHUB_API_BASE}/repos/{owner}/{project_name}/git/blobs");
             let blob_body = json!({
@@ -214,7 +244,9 @@ impl Tool for GitHubPushTool {
 
             let blob_data: serde_json::Value = blob_resp.json().await.unwrap_or_default();
             let blob_sha = blob_data["sha"].as_str().unwrap_or("").to_string();
-            if blob_sha.is_empty() { continue; }
+            if blob_sha.is_empty() {
+                continue;
+            }
 
             tree_entries.push(json!({
                 "path": relative_path,
@@ -229,6 +261,7 @@ impl Tool for GitHubPushTool {
                 success: false,
                 output: String::new(),
                 error: Some("No files to deploy. Snapshot may be empty.".to_string()),
+                error_hint: None,
             });
         }
 
@@ -254,6 +287,7 @@ impl Tool for GitHubPushTool {
                 success: false,
                 output: String::new(),
                 error: Some(format!("Failed to create git tree: {err}")),
+                error_hint: None,
             });
         }
 
@@ -268,7 +302,9 @@ impl Tool for GitHubPushTool {
         });
         if base_tree_sha.is_some() {
             // Get parent commit SHA
-            if let Ok(parent_sha) = get_latest_commit_sha(&client, token, &owner, &project_name).await {
+            if let Ok(parent_sha) =
+                get_latest_commit_sha(&client, token, &owner, &project_name, &branch).await
+            {
                 commit_body["parents"] = json!([parent_sha]);
             }
         }
@@ -288,6 +324,7 @@ impl Tool for GitHubPushTool {
                 success: false,
                 output: String::new(),
                 error: Some(format!("Failed to create commit: {err}")),
+                error_hint: None,
             });
         }
 
@@ -295,7 +332,8 @@ impl Tool for GitHubPushTool {
         let commit_sha = commit_data["sha"].as_str().unwrap_or("").to_string();
 
         // 8. Update or create branch ref
-        let ref_url = format!("{GITHUB_API_BASE}/repos/{owner}/{project_name}/git/refs/heads/main");
+        let ref_url =
+            format!("{GITHUB_API_BASE}/repos/{owner}/{project_name}/git/refs/heads/{branch}");
         let ref_body = json!({ "sha": commit_sha, "force": true });
 
         let ref_resp = client
@@ -310,8 +348,10 @@ impl Tool for GitHubPushTool {
             Ok(r) if r.status().is_success() => {}
             _ => {
                 // Ref might not exist yet — create it
-                let create_ref_url = format!("{GITHUB_API_BASE}/repos/{owner}/{project_name}/git/refs");
-                let create_ref_body = json!({ "ref": "refs/heads/main", "sha": commit_sha });
+                let create_ref_url =
+                    format!("{GITHUB_API_BASE}/repos/{owner}/{project_name}/git/refs");
+                let create_ref_body =
+                    json!({ "ref": format!("refs/heads/{branch}"), "sha": commit_sha });
                 let _ = client
                     .post(&create_ref_url)
                     .header("Authorization", format!("Bearer {token}"))
@@ -330,9 +370,11 @@ impl Tool for GitHubPushTool {
             output: format!(
                 "Deployed {files_count} files to GitHub!\n\
                  Repository: {repo_html_url}\n\
+                 Branch: {branch}\n\
                  Commit: {commit_sha}"
             ),
             error: None,
+            error_hint: None,
         })
     }
 }
@@ -344,8 +386,9 @@ async fn get_or_create_base_tree(
     token: &str,
     owner: &str,
     repo: &str,
+    branch: &str,
 ) -> anyhow::Result<Option<String>> {
-    let url = format!("{GITHUB_API_BASE}/repos/{owner}/{repo}/git/refs/heads/main");
+    let url = format!("{GITHUB_API_BASE}/repos/{owner}/{repo}/git/refs/heads/{branch}");
     let resp = client
         .get(&url)
         .header("Authorization", format!("Bearer {token}"))
@@ -367,8 +410,9 @@ async fn get_latest_commit_sha(
     token: &str,
     owner: &str,
     repo: &str,
+    branch: &str,
 ) -> anyhow::Result<String> {
-    let url = format!("{GITHUB_API_BASE}/repos/{owner}/{repo}/git/refs/heads/main");
+    let url = format!("{GITHUB_API_BASE}/repos/{owner}/{repo}/git/refs/heads/{branch}");
     let resp = client
         .get(&url)
         .header("Authorization", format!("Bearer {token}"))
@@ -380,7 +424,7 @@ async fn get_latest_commit_sha(
     data["object"]["sha"]
         .as_str()
         .map(|s| s.to_string())
-        .ok_or_else(|| anyhow::anyhow!("Cannot find latest commit SHA"))
+        .ok_or_else(|| anyhow::anyhow!("Cannot find latest commit SHA for branch '{branch}'"))
 }
 
 /// Strip common sandbox working directory prefixes to get a relative path.
@@ -424,12 +468,19 @@ mod tests {
             .await
             .unwrap();
         assert!(!result.success);
-        assert!(result.error.as_deref().unwrap_or("").contains("not connected"));
+        assert!(result
+            .error
+            .as_deref()
+            .unwrap_or("")
+            .contains("not connected"));
     }
 
     #[test]
     fn strip_workdir_prefix_works() {
-        assert_eq!(strip_workdir_prefix("/home/user/project/src/app/page.tsx"), "src/app/page.tsx");
+        assert_eq!(
+            strip_workdir_prefix("/home/user/project/src/app/page.tsx"),
+            "src/app/page.tsx"
+        );
         assert_eq!(strip_workdir_prefix("/home/user/file.txt"), "file.txt");
         assert_eq!(strip_workdir_prefix("/root/other.rs"), "root/other.rs");
     }

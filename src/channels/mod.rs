@@ -20,6 +20,7 @@ pub mod cli;
 pub mod dingtalk;
 pub mod discord;
 pub mod email_channel;
+pub mod github;
 pub mod imessage;
 pub mod irc;
 #[cfg(feature = "channel-lark")]
@@ -28,9 +29,8 @@ pub mod linq;
 #[cfg(feature = "channel-matrix")]
 pub mod matrix;
 pub mod mattermost;
-pub mod nextcloud_talk;
-pub mod github;
 pub mod napcat;
+pub mod nextcloud_talk;
 pub mod nostr;
 pub mod qq;
 pub mod signal;
@@ -45,13 +45,12 @@ pub mod whatsapp_storage;
 pub mod whatsapp_web;
 
 pub use bluebubbles::BlueBubblesChannel;
-pub use clawdtalk::{ClawdTalkChannel};
+pub use clawdtalk::ClawdTalkChannel;
 pub use cli::CliChannel;
 pub use dingtalk::DingTalkChannel;
 pub use discord::DiscordChannel;
-pub use github::GitHubChannel;
-pub use napcat::NapcatChannel;
 pub use email_channel::EmailChannel;
+pub use github::GitHubChannel;
 pub use imessage::IMessageChannel;
 pub use irc::IrcChannel;
 #[cfg(feature = "channel-lark")]
@@ -60,6 +59,7 @@ pub use linq::LinqChannel;
 #[cfg(feature = "channel-matrix")]
 pub use matrix::MatrixChannel;
 pub use mattermost::MattermostChannel;
+pub use napcat::NapcatChannel;
 pub use nextcloud_talk::NextcloudTalkChannel;
 pub use nostr::NostrChannel;
 pub use qq::QQChannel;
@@ -3328,7 +3328,11 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         // Create minimal workspace files
         std::fs::write(tmp.path().join("SOUL.md"), "# Soul\nBe helpful.").unwrap();
-        std::fs::write(tmp.path().join("IDENTITY.md"), "# Identity\nName: ZeroBuild").unwrap();
+        std::fs::write(
+            tmp.path().join("IDENTITY.md"),
+            "# Identity\nName: ZeroBuild",
+        )
+        .unwrap();
         std::fs::write(tmp.path().join("USER.md"), "# User\nName: Test User").unwrap();
         std::fs::write(
             tmp.path().join("AGENTS.md"),

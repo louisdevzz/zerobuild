@@ -74,7 +74,10 @@ pub async fn handle_github_callback(
 ) -> impl IntoResponse {
     // Handle error from either flow
     if let Some(err) = params.error {
-        let desc = params.error_description.as_deref().unwrap_or("unknown error");
+        let desc = params
+            .error_description
+            .as_deref()
+            .unwrap_or("unknown error");
         return (
             StatusCode::BAD_REQUEST,
             format!("GitHub OAuth error: {err} — {desc}"),
@@ -195,11 +198,9 @@ async fn save_token_and_respond(
 
     match crate::store::init_db(&db_path) {
         Ok(conn) => {
-            if let Err(e) = crate::store::tokens::save_github_token(
-                &conn,
-                &token,
-                username.as_deref(),
-            ) {
+            if let Err(e) =
+                crate::store::tokens::save_github_token(&conn, &token, username.as_deref())
+            {
                 return (
                     StatusCode::INTERNAL_SERVER_ERROR,
                     format!("Failed to save token: {e}"),
@@ -229,12 +230,7 @@ async fn save_token_and_respond(
         display_name
     );
 
-    (
-        StatusCode::OK,
-        [(header::CONTENT_TYPE, "text/html")],
-        html,
-    )
-        .into_response()
+    (StatusCode::OK, [(header::CONTENT_TYPE, "text/html")], html).into_response()
 }
 
 async fn fetch_github_username(client: &reqwest::Client, token: &str) -> Option<String> {

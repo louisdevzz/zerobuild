@@ -21,6 +21,7 @@ impl CronRemoveTool {
             return Some(ToolResult {
                 success: false,
                 output: String::new(),
+                error_hint: None,
                 error: Some(format!(
                     "Security policy: read-only mode, cannot perform '{action}'"
                 )),
@@ -31,6 +32,7 @@ impl CronRemoveTool {
             return Some(ToolResult {
                 success: false,
                 output: String::new(),
+                error_hint: None,
                 error: Some("Rate limit exceeded: too many actions in the last hour".to_string()),
             });
         }
@@ -39,6 +41,7 @@ impl CronRemoveTool {
             return Some(ToolResult {
                 success: false,
                 output: String::new(),
+                error_hint: None,
                 error: Some("Rate limit exceeded: action budget exhausted".to_string()),
             });
         }
@@ -72,6 +75,7 @@ impl Tool for CronRemoveTool {
             return Ok(ToolResult {
                 success: false,
                 output: String::new(),
+                error_hint: None,
                 error: Some("cron is disabled by config (cron.enabled=false)".to_string()),
             });
         }
@@ -82,6 +86,7 @@ impl Tool for CronRemoveTool {
                 return Ok(ToolResult {
                     success: false,
                     output: String::new(),
+                    error_hint: None,
                     error: Some("Missing 'job_id' parameter".to_string()),
                 });
             }
@@ -95,11 +100,13 @@ impl Tool for CronRemoveTool {
             Ok(()) => Ok(ToolResult {
                 success: true,
                 output: format!("Removed cron job {job_id}"),
+                error_hint: None,
                 error: None,
             }),
             Err(e) => Ok(ToolResult {
                 success: false,
                 output: String::new(),
+                error_hint: None,
                 error: Some(e.to_string()),
             }),
         }

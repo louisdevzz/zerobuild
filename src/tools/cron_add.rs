@@ -21,6 +21,7 @@ impl CronAddTool {
             return Some(ToolResult {
                 success: false,
                 output: String::new(),
+                error_hint: None,
                 error: Some(format!(
                     "Security policy: read-only mode, cannot perform '{action}'"
                 )),
@@ -31,6 +32,7 @@ impl CronAddTool {
             return Some(ToolResult {
                 success: false,
                 output: String::new(),
+                error_hint: None,
                 error: Some("Rate limit exceeded: too many actions in the last hour".to_string()),
             });
         }
@@ -39,6 +41,7 @@ impl CronAddTool {
             return Some(ToolResult {
                 success: false,
                 output: String::new(),
+                error_hint: None,
                 error: Some("Rate limit exceeded: action budget exhausted".to_string()),
             });
         }
@@ -88,6 +91,7 @@ impl Tool for CronAddTool {
             return Ok(ToolResult {
                 success: false,
                 output: String::new(),
+                error_hint: None,
                 error: Some("cron is disabled by config (cron.enabled=false)".to_string()),
             });
         }
@@ -99,6 +103,7 @@ impl Tool for CronAddTool {
                     return Ok(ToolResult {
                         success: false,
                         output: String::new(),
+                        error_hint: None,
                         error: Some(format!("Invalid schedule: {e}")),
                     });
                 }
@@ -107,6 +112,7 @@ impl Tool for CronAddTool {
                 return Ok(ToolResult {
                     success: false,
                     output: String::new(),
+                    error_hint: None,
                     error: Some("Missing 'schedule' parameter".to_string()),
                 });
             }
@@ -124,6 +130,7 @@ impl Tool for CronAddTool {
                 return Ok(ToolResult {
                     success: false,
                     output: String::new(),
+                    error_hint: None,
                     error: Some(format!("Invalid job_type: {other}")),
                 });
             }
@@ -154,6 +161,7 @@ impl Tool for CronAddTool {
                         return Ok(ToolResult {
                             success: false,
                             output: String::new(),
+                            error_hint: None,
                             error: Some("Missing 'command' for shell job".to_string()),
                         });
                     }
@@ -163,6 +171,7 @@ impl Tool for CronAddTool {
                     return Ok(ToolResult {
                         success: false,
                         output: String::new(),
+                        error_hint: None,
                         error: Some(reason),
                     });
                 }
@@ -180,6 +189,7 @@ impl Tool for CronAddTool {
                         return Ok(ToolResult {
                             success: false,
                             output: String::new(),
+                            error_hint: None,
                             error: Some("Missing 'prompt' for agent job".to_string()),
                         });
                     }
@@ -192,6 +202,7 @@ impl Tool for CronAddTool {
                             return Ok(ToolResult {
                                 success: false,
                                 output: String::new(),
+                                error_hint: None,
                                 error: Some(format!("Invalid session_target: {e}")),
                             });
                         }
@@ -211,6 +222,7 @@ impl Tool for CronAddTool {
                             return Ok(ToolResult {
                                 success: false,
                                 output: String::new(),
+                                error_hint: None,
                                 error: Some(format!("Invalid delivery config: {e}")),
                             });
                         }
@@ -246,11 +258,13 @@ impl Tool for CronAddTool {
                     "next_run": job.next_run,
                     "enabled": job.enabled
                 }))?,
+                error_hint: None,
                 error: None,
             }),
             Err(e) => Ok(ToolResult {
                 success: false,
                 output: String::new(),
+                error_hint: None,
                 error: Some(e.to_string()),
             }),
         }

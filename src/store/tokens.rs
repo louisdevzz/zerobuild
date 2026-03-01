@@ -16,9 +16,7 @@ pub struct GitHubToken {
 
 /// Load the stored GitHub token, if any.
 pub fn load_github_token(conn: &Connection) -> Result<Option<GitHubToken>> {
-    let mut stmt = conn.prepare(
-        "SELECT github_token, github_username FROM tokens WHERE id = 1",
-    )?;
+    let mut stmt = conn.prepare("SELECT github_token, github_username FROM tokens WHERE id = 1")?;
 
     let result = stmt
         .query_row([], |row| {
@@ -36,11 +34,7 @@ pub fn load_github_token(conn: &Connection) -> Result<Option<GitHubToken>> {
 }
 
 /// Persist a GitHub token (upsert — always row id=1).
-pub fn save_github_token(
-    conn: &Connection,
-    token: &str,
-    username: Option<&str>,
-) -> Result<()> {
+pub fn save_github_token(conn: &Connection, token: &str, username: Option<&str>) -> Result<()> {
     let now = Utc::now().to_rfc3339();
     conn.execute(
         "INSERT INTO tokens (id, github_token, github_username, updated_at)

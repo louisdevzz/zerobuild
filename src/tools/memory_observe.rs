@@ -78,6 +78,7 @@ impl Tool for MemoryObserveTool {
                     success: false,
                     output: String::new(),
                     error: Some("'confidence' must be within [0.0, 1.0]".to_string()),
+                    error_hint: None,
                 });
             }
         }
@@ -128,6 +129,7 @@ impl Tool for MemoryObserveTool {
                 success: false,
                 output: String::new(),
                 error: Some(error),
+                error_hint: None,
             });
         }
 
@@ -136,11 +138,13 @@ impl Tool for MemoryObserveTool {
                 success: true,
                 output: format!("Stored observation memory: {key}"),
                 error: None,
+                error_hint: None,
             }),
             Err(e) => Ok(ToolResult {
                 success: false,
                 output: String::new(),
                 error: Some(format!("Failed to store observation memory: {e}")),
+                error_hint: None,
             }),
         }
     }

@@ -55,6 +55,7 @@ impl Tool for SandboxGetPreviewUrlTool {
                     success: false,
                     output: String::new(),
                     error: Some(e),
+                    error_hint: None,
                 })
             }
         };
@@ -66,6 +67,7 @@ impl Tool for SandboxGetPreviewUrlTool {
                 success: true,
                 output: format!("Preview URL (port {port}): {url}\n(sandbox: {sandbox_id})"),
                 error: None,
+                error_hint: None,
             }),
             Err(e) => Ok(ToolResult {
                 success: false,
@@ -73,6 +75,7 @@ impl Tool for SandboxGetPreviewUrlTool {
                 error: Some(format!(
                     "Failed to get preview URL: {e}\nMake sure the dev server is running on port {port}."
                 )),
+                error_hint: None,
             }),
         }
     }

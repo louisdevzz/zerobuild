@@ -15,6 +15,8 @@
 //! To add a new tool, implement [`Tool`] in a new submodule and register it in
 //! [`all_tools_with_runtime`]. See `AGENTS.md` §7.3 for the full change playbook.
 
+pub mod auth_profile;
+pub mod bg_run;
 pub mod browser;
 pub mod browser_open;
 pub mod cli_discovery;
@@ -26,11 +28,12 @@ pub mod cron_run;
 pub mod cron_runs;
 pub mod cron_update;
 pub mod delegate;
-pub mod sandbox;
 pub mod file_edit;
 pub mod file_read;
 pub mod file_write;
 pub mod git_operations;
+pub mod github_ops;
+pub mod github_push;
 pub mod glob_search;
 pub mod hardware_board_info;
 pub mod hardware_memory_map;
@@ -38,26 +41,28 @@ pub mod hardware_memory_read;
 pub mod http_request;
 pub mod image_info;
 pub mod memory_forget;
+pub mod memory_observe;
 pub mod memory_recall;
 pub mod memory_store;
 pub mod model_routing_config;
 pub mod pdf_read;
+pub mod pptx_read;
+pub mod product_advisor;
 pub mod proxy_config;
 pub mod pushover;
+pub mod sandbox;
 pub mod schedule;
 pub mod schema;
 pub mod screenshot;
 pub mod shell;
 pub mod traits;
 pub mod web_search_tool;
-pub mod auth_profile;
-pub mod bg_run;
-pub mod memory_observe;
-pub mod pptx_read;
 pub mod xlsx_read;
-pub mod github_push;
-pub mod github_ops;
 
+pub use auth_profile::ManageAuthProfileTool;
+pub use bg_run::{
+    format_bg_result_for_injection, BgJob, BgJobStatus, BgJobStore, BgRunTool, BgStatusTool,
+};
 pub use browser::{BrowserTool, ComputerUseConfig};
 pub use browser_open::BrowserOpenTool;
 pub use composio::ComposioTool;
@@ -68,14 +73,17 @@ pub use cron_run::CronRunTool;
 pub use cron_runs::CronRunsTool;
 pub use cron_update::CronUpdateTool;
 pub use delegate::DelegateTool;
-pub use sandbox::{
-    SandboxCreateTool, SandboxGetPreviewUrlTool, SandboxKillTool, SandboxListFilesTool,
-    SandboxReadFileTool, SandboxRunCommandTool, SandboxSaveSnapshotTool, SandboxWriteFileTool,
-};
 pub use file_edit::FileEditTool;
 pub use file_read::FileReadTool;
 pub use file_write::FileWriteTool;
 pub use git_operations::GitOperationsTool;
+pub use github_ops::{
+    GitHubAnalyzePRTool, GitHubCloseIssueTool, GitHubConnectTool, GitHubCreateIssueTool,
+    GitHubCreateIssueWithHashtagsTool, GitHubCreatePRTool, GitHubEditIssueTool, GitHubGetIssueTool,
+    GitHubGetPRTool, GitHubListIssuesTool, GitHubListPRsTool, GitHubListReposTool,
+    GitHubReviewPRTool, GitHubReviewPRWithChecklistTool, GitHubUploadImageTool,
+};
+pub use github_push::GitHubPushTool;
 pub use glob_search::GlobSearchTool;
 #[allow(unused_imports)]
 pub use hardware_board_info::HardwareBoardInfoTool;
@@ -86,12 +94,19 @@ pub use hardware_memory_read::HardwareMemoryReadTool;
 pub use http_request::HttpRequestTool;
 pub use image_info::ImageInfoTool;
 pub use memory_forget::MemoryForgetTool;
+pub use memory_observe::MemoryObserveTool;
 pub use memory_recall::MemoryRecallTool;
 pub use memory_store::MemoryStoreTool;
 pub use model_routing_config::ModelRoutingConfigTool;
 pub use pdf_read::PdfReadTool;
+pub use pptx_read::PptxReadTool;
+pub use product_advisor::ProductAdvisorTool;
 pub use proxy_config::ProxyConfigTool;
 pub use pushover::PushoverTool;
+pub use sandbox::{
+    SandboxCreateTool, SandboxGetPreviewUrlTool, SandboxKillTool, SandboxListFilesTool,
+    SandboxReadFileTool, SandboxRunCommandTool, SandboxSaveSnapshotTool, SandboxWriteFileTool,
+};
 pub use schedule::ScheduleTool;
 #[allow(unused_imports)]
 pub use schema::{CleaningStrategy, SchemaCleanr};
@@ -100,21 +115,8 @@ pub use shell::ShellTool;
 pub use traits::Tool;
 #[allow(unused_imports)]
 pub use traits::{ToolResult, ToolSpec};
-pub use auth_profile::ManageAuthProfileTool;
-pub use bg_run::{
-    format_bg_result_for_injection, BgJob, BgJobStatus, BgJobStore, BgRunTool, BgStatusTool,
-};
-pub use memory_observe::MemoryObserveTool;
-pub use pptx_read::PptxReadTool;
-pub use xlsx_read::XlsxReadTool;
 pub use web_search_tool::WebSearchTool;
-pub use github_push::GitHubPushTool;
-pub use github_ops::{
-    GitHubAnalyzePRTool, GitHubCloseIssueTool, GitHubConnectTool, GitHubCreateIssueTool,
-    GitHubCreateIssueWithHashtagsTool, GitHubCreatePRTool, GitHubEditIssueTool, GitHubGetIssueTool,
-    GitHubGetPRTool, GitHubListIssuesTool, GitHubListPRsTool, GitHubListReposTool,
-    GitHubReviewPRTool, GitHubReviewPRWithChecklistTool, GitHubUploadImageTool,
-};
+pub use xlsx_read::XlsxReadTool;
 
 use crate::config::{Config, DelegateAgentConfig};
 use crate::memory::Memory;
@@ -202,11 +204,12 @@ pub fn default_tools_with_runtime(
 /// Returns empty sandbox tools if neither provider is available.
 pub fn sandbox_tools(
     zerobuild_config: Arc<crate::config::ZerobuildConfig>,
+    gateway_base_url: String,
 ) -> Vec<Box<dyn Tool>> {
     use crate::sandbox::{docker::DockerSandboxClient, e2b::E2bSandboxClient, SandboxClient};
 
-    let api_key = std::env::var("E2B_API_KEY")
-        .unwrap_or_else(|_| zerobuild_config.e2b_api_key.clone());
+    let api_key =
+        std::env::var("E2B_API_KEY").unwrap_or_else(|_| zerobuild_config.e2b_api_key.clone());
 
     let sandbox: Arc<dyn SandboxClient> = if api_key.is_empty() {
         match DockerSandboxClient::new(&zerobuild_config.docker_image) {
@@ -223,12 +226,16 @@ pub fn sandbox_tools(
                 return vec![
                     Box::new(GitHubPushTool::new(zerobuild_config.clone())),
                     Box::new(GitHubCreateIssueTool::new(zerobuild_config.clone())),
-                    Box::new(GitHubCreateIssueWithHashtagsTool::new(zerobuild_config.clone())),
+                    Box::new(GitHubCreateIssueWithHashtagsTool::new(
+                        zerobuild_config.clone(),
+                    )),
                     Box::new(GitHubEditIssueTool::new(zerobuild_config.clone())),
                     Box::new(GitHubCloseIssueTool::new(zerobuild_config.clone())),
                     Box::new(GitHubCreatePRTool::new(zerobuild_config.clone())),
                     Box::new(GitHubReviewPRTool::new(zerobuild_config.clone())),
-                    Box::new(GitHubReviewPRWithChecklistTool::new(zerobuild_config.clone())),
+                    Box::new(GitHubReviewPRWithChecklistTool::new(
+                        zerobuild_config.clone(),
+                    )),
                     Box::new(GitHubListReposTool::new(zerobuild_config.clone())),
                     Box::new(GitHubListIssuesTool::new(zerobuild_config.clone())),
                     Box::new(GitHubListPRsTool::new(zerobuild_config.clone())),
@@ -258,16 +265,23 @@ pub fn sandbox_tools(
         Box::new(SandboxReadFileTool::new(sandbox.clone())),
         Box::new(SandboxListFilesTool::new(sandbox.clone())),
         Box::new(SandboxGetPreviewUrlTool::new(sandbox.clone())),
-        Box::new(SandboxSaveSnapshotTool::new(sandbox.clone(), db_path.clone())),
+        Box::new(SandboxSaveSnapshotTool::new(
+            sandbox.clone(),
+            db_path.clone(),
+        )),
         Box::new(SandboxKillTool::new(sandbox)),
         Box::new(GitHubPushTool::new(zerobuild_config.clone())),
         Box::new(GitHubCreateIssueTool::new(zerobuild_config.clone())),
-        Box::new(GitHubCreateIssueWithHashtagsTool::new(zerobuild_config.clone())),
+        Box::new(GitHubCreateIssueWithHashtagsTool::new(
+            zerobuild_config.clone(),
+        )),
         Box::new(GitHubEditIssueTool::new(zerobuild_config.clone())),
         Box::new(GitHubCloseIssueTool::new(zerobuild_config.clone())),
         Box::new(GitHubCreatePRTool::new(zerobuild_config.clone())),
         Box::new(GitHubReviewPRTool::new(zerobuild_config.clone())),
-        Box::new(GitHubReviewPRWithChecklistTool::new(zerobuild_config.clone())),
+        Box::new(GitHubReviewPRWithChecklistTool::new(
+            zerobuild_config.clone(),
+        )),
         Box::new(GitHubListReposTool::new(zerobuild_config.clone())),
         Box::new(GitHubListIssuesTool::new(zerobuild_config.clone())),
         Box::new(GitHubListPRsTool::new(zerobuild_config.clone())),
@@ -411,10 +425,15 @@ pub fn all_tools_with_runtime(
     tool_arcs.push(Arc::new(XlsxReadTool::new(security.clone())));
 
     // Memory observation
-    tool_arcs.push(Arc::new(MemoryObserveTool::new(Arc::clone(&memory), security.clone())));
+    tool_arcs.push(Arc::new(MemoryObserveTool::new(
+        Arc::clone(&memory),
+        security.clone(),
+    )));
 
     // Auth profile management
-    tool_arcs.push(Arc::new(ManageAuthProfileTool::new(Arc::new(root_config.clone()))));
+    tool_arcs.push(Arc::new(ManageAuthProfileTool::new(Arc::new(
+        root_config.clone(),
+    ))));
 
     // Vision tools are always available
     tool_arcs.push(Arc::new(ScreenshotTool::new(security.clone())));
@@ -463,10 +482,17 @@ pub fn all_tools_with_runtime(
     // Add sandbox tools (E2B/Docker) and GitHub tools
     // These are available when user wants to build web apps or deploy
     let zb_cfg = Arc::new(root_config.zerobuild.clone());
-    let sandbox_and_deploy = sandbox_tools(zb_cfg);
+    let gateway_base_url = format!(
+        "http://{}:{}",
+        root_config.gateway.host, root_config.gateway.port
+    );
+    let sandbox_and_deploy = sandbox_tools(zb_cfg, gateway_base_url);
     for tool in sandbox_and_deploy {
         tool_arcs.push(Arc::from(tool));
     }
+
+    // Add product advisor tool for generating improvement suggestions
+    tool_arcs.push(Arc::new(ProductAdvisorTool::new(security.clone())));
 
     boxed_registry_from_arcs(tool_arcs)
 }

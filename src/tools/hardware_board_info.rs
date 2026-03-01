@@ -103,6 +103,7 @@ impl Tool for HardwareBoardInfoTool {
                     "No peripherals configured. Add boards to config.toml [peripherals.boards]."
                         .into(),
                 ),
+                error_hint: None,
             });
         }
 
@@ -121,6 +122,7 @@ impl Tool for HardwareBoardInfoTool {
                         success: true,
                         output: info,
                         error: None,
+                        error_hint: None,
                     });
                 }
                 Err(e) => {
@@ -151,6 +153,7 @@ impl Tool for HardwareBoardInfoTool {
             success: true,
             output,
             error: None,
+            error_hint: None,
         })
     }
 }

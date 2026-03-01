@@ -1698,7 +1698,7 @@ fn build_native_assistant_history(
         .filter(|r| !r.is_empty())
         .map(|r| serde_json::Value::String(r.to_string()))
         .unwrap_or(serde_json::Value::Null);
-    
+
     let result = serde_json::json!({
         "content": content,
         "tool_calls": calls_json,
@@ -1736,7 +1736,7 @@ fn build_native_assistant_history_from_parsed_calls(
         .filter(|r| !r.is_empty())
         .map(|r| serde_json::Value::String(r.to_string()))
         .unwrap_or(serde_json::Value::Null);
-    
+
     let result = serde_json::json!({
         "content": content,
         "tool_calls": calls_json,
@@ -2028,6 +2028,10 @@ pub(crate) async fn run_tool_call_loop(
     let turn_id = Uuid::new_v4().to_string();
     let mut seen_tool_signatures: HashSet<(String, String)> = HashSet::new();
 
+    // Track consecutive failures per tool for escalation
+    let mut consecutive_failures: std::collections::HashMap<String, u32> =
+        std::collections::HashMap::new();
+
     for iteration in 0..max_iterations {
         if cancellation_token
             .as_ref()
@@ -2113,133 +2117,142 @@ pub(crate) async fn run_tool_call_loop(
             chat_future.await
         };
 
-        let (response_text, parsed_text, tool_calls, assistant_history_content, native_tool_calls, reasoning_content) =
-            match chat_result {
-                Ok(resp) => {
-                    let (resp_input_tokens, resp_output_tokens) = resp
-                        .usage
-                        .as_ref()
-                        .map(|u| (u.input_tokens, u.output_tokens))
-                        .unwrap_or((None, None));
+        let (
+            response_text,
+            parsed_text,
+            tool_calls,
+            assistant_history_content,
+            native_tool_calls,
+            reasoning_content,
+        ) = match chat_result {
+            Ok(resp) => {
+                let (resp_input_tokens, resp_output_tokens) = resp
+                    .usage
+                    .as_ref()
+                    .map(|u| (u.input_tokens, u.output_tokens))
+                    .unwrap_or((None, None));
 
-                    observer.record_event(&ObserverEvent::LlmResponse {
-                        provider: provider_name.to_string(),
-                        model: model.to_string(),
-                        duration: llm_started_at.elapsed(),
-                        success: true,
-                        error_message: None,
-                        input_tokens: resp_input_tokens,
-                        output_tokens: resp_output_tokens,
-                    });
+                observer.record_event(&ObserverEvent::LlmResponse {
+                    provider: provider_name.to_string(),
+                    model: model.to_string(),
+                    duration: llm_started_at.elapsed(),
+                    success: true,
+                    error_message: None,
+                    input_tokens: resp_input_tokens,
+                    output_tokens: resp_output_tokens,
+                });
 
-                    let response_text = resp.text_or_empty().to_string();
-                    // First try native structured tool calls (OpenAI-format).
-                    // Fall back to text-based parsing (XML tags, markdown blocks,
-                    // GLM format) only if the provider returned no native calls —
-                    // this ensures we support both native and prompt-guided models.
-                    let mut calls = parse_structured_tool_calls(&resp.tool_calls);
-                    let mut parsed_text = String::new();
+                let response_text = resp.text_or_empty().to_string();
+                // First try native structured tool calls (OpenAI-format).
+                // Fall back to text-based parsing (XML tags, markdown blocks,
+                // GLM format) only if the provider returned no native calls —
+                // this ensures we support both native and prompt-guided models.
+                let mut calls = parse_structured_tool_calls(&resp.tool_calls);
+                let mut parsed_text = String::new();
 
-                    if calls.is_empty() {
-                        let (fallback_text, fallback_calls) = parse_tool_calls(&response_text);
-                        if !fallback_text.is_empty() {
-                            parsed_text = fallback_text;
-                        }
-                        calls = fallback_calls;
+                if calls.is_empty() {
+                    let (fallback_text, fallback_calls) = parse_tool_calls(&response_text);
+                    if !fallback_text.is_empty() {
+                        parsed_text = fallback_text;
                     }
-
-                    if let Some(parse_issue) = detect_tool_call_parse_issue(&response_text, &calls)
-                    {
-                        runtime_trace::record_event(
-                            "tool_call_parse_issue",
-                            Some(channel_name),
-                            Some(provider_name),
-                            Some(model),
-                            Some(&turn_id),
-                            Some(false),
-                            Some(&parse_issue),
-                            serde_json::json!({
-                                "iteration": iteration + 1,
-                                "response_excerpt": truncate_with_ellipsis(
-                                    &scrub_credentials(&response_text),
-                                    600
-                                ),
-                            }),
-                        );
-                    }
-
-                    runtime_trace::record_event(
-                        "llm_response",
-                        Some(channel_name),
-                        Some(provider_name),
-                        Some(model),
-                        Some(&turn_id),
-                        Some(true),
-                        None,
-                        serde_json::json!({
-                            "iteration": iteration + 1,
-                            "duration_ms": llm_started_at.elapsed().as_millis(),
-                            "input_tokens": resp_input_tokens,
-                            "output_tokens": resp_output_tokens,
-                            "raw_response": scrub_credentials(&response_text),
-                            "native_tool_calls": resp.tool_calls.len(),
-                            "parsed_tool_calls": calls.len(),
-                        }),
-                    );
-
-                    // Preserve native tool call IDs in assistant history so role=tool
-                    // follow-up messages can reference the exact call id.
-                    // Also preserve reasoning_content for thinking models.
-                    let reasoning_content: Option<String> = resp.reasoning_content.clone();
-                    let reasoning_ref = reasoning_content.as_deref();
-                    let assistant_history_content = if resp.tool_calls.is_empty() {
-                        if use_native_tools {
-                            build_native_assistant_history_from_parsed_calls(&response_text, &calls, reasoning_ref)
-                                .unwrap_or_else(|| response_text.clone())
-                        } else {
-                            response_text.clone()
-                        }
-                    } else {
-                        build_native_assistant_history(&response_text, &resp.tool_calls, reasoning_ref)
-                    };
-
-                    let native_calls = resp.tool_calls;
-                    (
-                        response_text,
-                        parsed_text,
-                        calls,
-                        assistant_history_content,
-                        native_calls,
-                        reasoning_content,
-                    )
+                    calls = fallback_calls;
                 }
-                Err(e) => {
-                    let safe_error = crate::providers::sanitize_api_error(&e.to_string());
-                    observer.record_event(&ObserverEvent::LlmResponse {
-                        provider: provider_name.to_string(),
-                        model: model.to_string(),
-                        duration: llm_started_at.elapsed(),
-                        success: false,
-                        error_message: Some(safe_error.clone()),
-                        input_tokens: None,
-                        output_tokens: None,
-                    });
+
+                if let Some(parse_issue) = detect_tool_call_parse_issue(&response_text, &calls) {
                     runtime_trace::record_event(
-                        "llm_response",
+                        "tool_call_parse_issue",
                         Some(channel_name),
                         Some(provider_name),
                         Some(model),
                         Some(&turn_id),
                         Some(false),
-                        Some(&safe_error),
+                        Some(&parse_issue),
                         serde_json::json!({
                             "iteration": iteration + 1,
-                            "duration_ms": llm_started_at.elapsed().as_millis(),
+                            "response_excerpt": truncate_with_ellipsis(
+                                &scrub_credentials(&response_text),
+                                600
+                            ),
                         }),
                     );
-                    return Err(e);
                 }
-            };
+
+                runtime_trace::record_event(
+                    "llm_response",
+                    Some(channel_name),
+                    Some(provider_name),
+                    Some(model),
+                    Some(&turn_id),
+                    Some(true),
+                    None,
+                    serde_json::json!({
+                        "iteration": iteration + 1,
+                        "duration_ms": llm_started_at.elapsed().as_millis(),
+                        "input_tokens": resp_input_tokens,
+                        "output_tokens": resp_output_tokens,
+                        "raw_response": scrub_credentials(&response_text),
+                        "native_tool_calls": resp.tool_calls.len(),
+                        "parsed_tool_calls": calls.len(),
+                    }),
+                );
+
+                // Preserve native tool call IDs in assistant history so role=tool
+                // follow-up messages can reference the exact call id.
+                // Also preserve reasoning_content for thinking models.
+                let reasoning_content: Option<String> = resp.reasoning_content.clone();
+                let reasoning_ref = reasoning_content.as_deref();
+                let assistant_history_content = if resp.tool_calls.is_empty() {
+                    if use_native_tools {
+                        build_native_assistant_history_from_parsed_calls(
+                            &response_text,
+                            &calls,
+                            reasoning_ref,
+                        )
+                        .unwrap_or_else(|| response_text.clone())
+                    } else {
+                        response_text.clone()
+                    }
+                } else {
+                    build_native_assistant_history(&response_text, &resp.tool_calls, reasoning_ref)
+                };
+
+                let native_calls = resp.tool_calls;
+                (
+                    response_text,
+                    parsed_text,
+                    calls,
+                    assistant_history_content,
+                    native_calls,
+                    reasoning_content,
+                )
+            }
+            Err(e) => {
+                let safe_error = crate::providers::sanitize_api_error(&e.to_string());
+                observer.record_event(&ObserverEvent::LlmResponse {
+                    provider: provider_name.to_string(),
+                    model: model.to_string(),
+                    duration: llm_started_at.elapsed(),
+                    success: false,
+                    error_message: Some(safe_error.clone()),
+                    input_tokens: None,
+                    output_tokens: None,
+                });
+                runtime_trace::record_event(
+                    "llm_response",
+                    Some(channel_name),
+                    Some(provider_name),
+                    Some(model),
+                    Some(&turn_id),
+                    Some(false),
+                    Some(&safe_error),
+                    serde_json::json!({
+                        "iteration": iteration + 1,
+                        "duration_ms": llm_started_at.elapsed().as_millis(),
+                    }),
+                );
+                return Err(e);
+            }
+        };
 
         let display_text = if parsed_text.is_empty() {
             response_text.clone()
@@ -2307,7 +2320,8 @@ pub(crate) async fn run_tool_call_loop(
                 serde_json::json!({
                     "content": response_text.clone(),
                     "reasoning_content": reasoning,
-                }).to_string()
+                })
+                .to_string()
             } else {
                 response_text.clone()
             };
@@ -2336,8 +2350,11 @@ pub(crate) async fn run_tool_call_loop(
 
         for (idx, call) in tool_calls.iter().enumerate() {
             // Log tool call for debugging
-            eprintln!("[AGENT] Executing tool: {} with args: {:?}", call.name, call.arguments);
-            
+            eprintln!(
+                "[AGENT] Executing tool: {} with args: {:?}",
+                call.name, call.arguments
+            );
+
             // ── Hook: before_tool_call (modifying) ──────────
             let mut tool_name = call.name.clone();
             let mut tool_args = call.arguments.clone();
@@ -2543,6 +2560,7 @@ pub(crate) async fn run_tool_call_loop(
                     success: outcome.success,
                     output: outcome.output.clone(),
                     error: None,
+                    error_hint: None,
                 };
                 hooks
                     .fire_after_tool_call(&call.name, &tool_result_obj, outcome.duration)
@@ -2559,6 +2577,38 @@ pub(crate) async fn run_tool_call_loop(
                 };
                 tracing::debug!(tool = %call.name, secs, "Sending progress complete to draft");
                 let _ = tx.send(format!("{icon} {} ({secs}s)\n", call.name)).await;
+            }
+
+            // Update consecutive failure tracking
+            if outcome.success {
+                consecutive_failures.remove(&call.name);
+            } else {
+                let count = consecutive_failures.entry(call.name.clone()).or_insert(0);
+                *count += 1;
+
+                // Inject escalation message after 3 consecutive failures
+                if *count >= 3 {
+                    let escalation_msg = "I'm having trouble with this step. Would you like me to try a different approach?";
+                    tracing::warn!(
+                        tool = %call.name,
+                        failures = *count,
+                        "Tool failed {} consecutive times — escalating to user", *count
+                    );
+                    // Add escalation message to output
+                    let escalated_output =
+                        format!("{}\n\n[ESCALATION] {}", outcome.output, escalation_msg);
+                    ordered_results[*idx] = Some((
+                        call.name.clone(),
+                        call.tool_call_id.clone(),
+                        ToolExecutionOutcome {
+                            output: escalated_output,
+                            success: false,
+                            error_reason: outcome.error_reason.clone(),
+                            duration: outcome.duration,
+                        },
+                    ));
+                    continue;
+                }
             }
 
             ordered_results[*idx] = Some((call.name.clone(), call.tool_call_id.clone(), outcome));
@@ -2689,6 +2739,19 @@ pub async fn run(
         config.api_key.as_deref(),
     )?);
     tracing::info!(backend = mem.name(), "Memory initialized");
+
+    // ── Load active project context for session resumption ────────
+    let active_project = memory::load_project_context(mem.as_ref())
+        .await
+        .ok()
+        .flatten();
+    if let Some(ref project) = active_project {
+        tracing::info!(
+            name = %project.name,
+            status = %project.status,
+            "Active project loaded"
+        );
+    }
 
     // ── Peripherals (merge peripheral tools into registry) ─
     if !peripheral_overrides.is_empty() {
@@ -2909,6 +2972,14 @@ pub async fn run(
         config.skills.prompt_injection_mode,
     );
 
+    // Inject active project context into system prompt if available
+    if let Some(ref project) = active_project {
+        let project_context = memory::format_project_context_for_prompt(project);
+        system_prompt.push_str("\n\n");
+        system_prompt.push_str(&project_context);
+        system_prompt.push('\n');
+    }
+
     // Append structured tool-use instructions with schemas (only for non-native providers)
     if !native_tools {
         system_prompt.push_str(&build_tool_instructions(&tools_registry));
@@ -2979,8 +3050,17 @@ pub async fn run(
         println!("{response}");
         observer.record_event(&ObserverEvent::TurnComplete);
     } else {
-        println!("🦀 ZeroBuild Interactive Mode");
-        println!("Type /help for commands.\n");
+        // Show welcome message — different if resuming an active project
+        if let Some(ref project) = active_project {
+            println!("🦀 Welcome back to ZeroBuild!");
+            println!(
+                "You're building **{}**. Want to pick up where you left off?\n",
+                project.name
+            );
+        } else {
+            println!("🦀 ZeroBuild Interactive Mode");
+            println!("Type /help for commands.\n");
+        }
         let cli = crate::channels::CliChannel::new();
 
         // Persistent conversation history across turns
@@ -3199,19 +3279,24 @@ pub async fn process_message(config: Config, message: &str) -> Result<String> {
     if let Some(task_type) = crate::agent::model_advisor::detect_task_type(message) {
         if !crate::agent::model_advisor::is_model_suitable(&model_name, task_type) {
             let has_routing = !config.model_routes.is_empty();
-            let recommendation = 
-                crate::agent::model_advisor::generate_recommendation(&model_name, task_type, has_routing);
-            
+            let recommendation = crate::agent::model_advisor::generate_recommendation(
+                &model_name,
+                task_type,
+                has_routing,
+            );
+
             // Log recommendation (in interactive mode, this could be shown to user)
             tracing::info!("Model recommendation: {}", recommendation);
-            
+
             // For now, add to memory so user can see it
-            let _ = mem.store(
-                "model_recommendation",
-                &recommendation,
-                MemoryCategory::Core,
-                None,
-            ).await;
+            let _ = mem
+                .store(
+                    "model_recommendation",
+                    &recommendation,
+                    MemoryCategory::Core,
+                    None,
+                )
+                .await;
         }
     }
 
@@ -3552,6 +3637,7 @@ mod tests {
                 success: true,
                 output: format!("counted:{value}"),
                 error: None,
+                error_hint: None,
             })
         }
     }
@@ -3620,6 +3706,7 @@ mod tests {
                 success: true,
                 output: format!("ok:{value}"),
                 error: None,
+                error_hint: None,
             })
         }
     }

@@ -42,11 +42,73 @@ impl TaskStatus {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum PlanStatus {
+    Draft,
+    PendingApproval,
+    Approved,
+    Rejected,
+}
+
+impl fmt::Display for PlanStatus {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            PlanStatus::Draft => write!(f, "draft"),
+            PlanStatus::PendingApproval => write!(f, "pending_approval"),
+            PlanStatus::Approved => write!(f, "approved"),
+            PlanStatus::Rejected => write!(f, "rejected"),
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 struct TaskItem {
     id: usize,
     title: String,
     status: TaskStatus,
+}
+
+/// A proposed build plan awaiting user confirmation
+#[derive(Debug, Clone)]
+struct ProposedPlan {
+    project_name: String,
+    tech_stack: String,
+    features: Vec<String>,
+    steps: Vec<String>,
+    status: PlanStatus,
+}
+
+impl ProposedPlan {
+    fn format_for_user(&self) -> String {
+        let features_list = if self.features.is_empty() {
+            "None specified".to_string()
+        } else {
+            self.features
+                .iter()
+                .map(|f| format!("   • {f}"))
+                .collect::<Vec<_>>()
+                .join("\n")
+        };
+
+        let steps_list = self
+            .steps
+            .iter()
+            .enumerate()
+            .map(|(i, s)| format!("   {}. {s}", i + 1))
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        format!(
+            "📝 BUILD PLAN\n\
+             ═══════════════════════════════════════════\n\n\
+             📁 Project: {}\n\
+             🛠️  Technology: {}\n\n\
+             ✨ Features:\n{}\n\n\
+             📋 Steps:\n{}\n\n\
+             Type \"Start\" to proceed or let me know what you'd like to change.",
+            self.project_name, self.tech_stack, features_list, steps_list
+        )
+    }
 }
 
 // ── Tool ─────────────────────────────────────────────────────────────────
@@ -55,6 +117,7 @@ pub struct TaskPlanTool {
     security: Arc<SecurityPolicy>,
     tasks: Arc<RwLock<Vec<TaskItem>>>,
     next_id: Arc<RwLock<usize>>,
+    proposed_plan: Arc<RwLock<Option<ProposedPlan>>>,
 }
 
 impl TaskPlanTool {
@@ -63,6 +126,7 @@ impl TaskPlanTool {
             security,
             tasks: Arc::new(RwLock::new(Vec::new())),
             next_id: Arc::new(RwLock::new(1)),
+            proposed_plan: Arc::new(RwLock::new(None)),
         }
     }
 
@@ -74,6 +138,7 @@ impl TaskPlanTool {
                 success: false,
                 output: String::new(),
                 error: Some(msg),
+                error_hint: None,
             })
     }
 
@@ -87,6 +152,7 @@ impl TaskPlanTool {
                     error: Some(
                         "Parameter 'tasks' must be a non-empty array of {title, status?}".into(),
                     ),
+                    error_hint: None,
                 };
             }
         };
@@ -101,6 +167,7 @@ impl TaskPlanTool {
                         success: false,
                         output: String::new(),
                         error: Some("Each task must have a non-empty 'title' string".into()),
+                        error_hint: None,
                     };
                 }
             };
@@ -121,6 +188,7 @@ impl TaskPlanTool {
             success: true,
             output: format!("Created {count} task(s)."),
             error: None,
+            error_hint: None,
         }
     }
 
@@ -130,6 +198,7 @@ impl TaskPlanTool {
                 success: false,
                 output: String::new(),
                 error: Some("Parameter 'title' must be a non-empty string".into()),
+                error_hint: None,
             };
         }
 
@@ -147,6 +216,7 @@ impl TaskPlanTool {
             success: true,
             output: format!("Added task [{id}] \"{title}\"."),
             error: None,
+            error_hint: None,
         }
     }
 
@@ -160,6 +230,7 @@ impl TaskPlanTool {
                     error: Some(format!(
                         "Invalid status '{status_str}'. Must be: pending, in_progress, completed"
                     )),
+                    error_hint: None,
                 };
             }
         };
@@ -172,12 +243,14 @@ impl TaskPlanTool {
                     success: true,
                     output: format!("Task [{id}] updated to {status}."),
                     error: None,
+                    error_hint: None,
                 }
             }
             None => ToolResult {
                 success: false,
                 output: String::new(),
                 error: Some(format!("Task with id {id} not found")),
+                error_hint: None,
             },
         }
     }
@@ -189,6 +262,7 @@ impl TaskPlanTool {
                 success: true,
                 output: "No tasks.".into(),
                 error: None,
+                error_hint: None,
             };
         }
 
@@ -207,6 +281,7 @@ impl TaskPlanTool {
             success: true,
             output: lines.join("\n"),
             error: None,
+            error_hint: None,
         }
     }
 
@@ -218,7 +293,168 @@ impl TaskPlanTool {
             success: true,
             output: "Task list cleared.".into(),
             error: None,
+            error_hint: None,
         }
+    }
+
+    fn handle_propose(&self, plan_val: &serde_json::Value) -> ToolResult {
+        let project_name = plan_val
+            .get("project_name")
+            .and_then(|v| v.as_str())
+            .unwrap_or("Untitled Project");
+
+        let tech_stack = plan_val
+            .get("tech_stack")
+            .and_then(|v| v.as_str())
+            .unwrap_or("Next.js");
+
+        let features = plan_val
+            .get("features")
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+
+        let steps = plan_val
+            .get("steps")
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+
+        if steps.is_empty() {
+            return ToolResult {
+                success: false,
+                output: String::new(),
+                error: Some("Plan must have at least one step".into()),
+                error_hint: None,
+            };
+        }
+
+        let plan = ProposedPlan {
+            project_name: project_name.to_string(),
+            tech_stack: tech_stack.to_string(),
+            features,
+            steps,
+            status: PlanStatus::PendingApproval,
+        };
+
+        let formatted = plan.format_for_user();
+        *self.proposed_plan.write().unwrap() = Some(plan);
+
+        ToolResult {
+            success: true,
+            output: formatted,
+            error: None,
+            error_hint: None,
+        }
+    }
+
+    fn handle_confirm(&self) -> ToolResult {
+        let mut plan_guard = self.proposed_plan.write().unwrap();
+
+        match plan_guard.as_mut() {
+            Some(plan) => {
+                if plan.status == PlanStatus::Approved {
+                    return ToolResult {
+                        success: true,
+                        output: "Plan was already approved. You can proceed with the build.".into(),
+                        error: None,
+                        error_hint: None,
+                    };
+                }
+
+                if plan.status == PlanStatus::Rejected {
+                    return ToolResult {
+                        success: false,
+                        output: String::new(),
+                        error: Some(
+                            "This plan was previously rejected. Please propose a new plan.".into(),
+                        ),
+                        error_hint: None,
+                    };
+                }
+
+                plan.status = PlanStatus::Approved;
+
+                // Also create task items from the plan steps
+                let mut items = Vec::new();
+                for (i, step) in plan.steps.iter().enumerate() {
+                    items.push(TaskItem {
+                        id: i + 1,
+                        title: step.clone(),
+                        status: TaskStatus::Pending,
+                    });
+                }
+                *self.tasks.write().unwrap() = items;
+                *self.next_id.write().unwrap() = plan.steps.len() + 1;
+
+                ToolResult {
+                    success: true,
+                    output: format!(
+                        "✅ Plan approved for \"{}\". {} task(s) created. You can now start building.",
+                        plan.project_name,
+                        plan.steps.len()
+                    ),
+                    error: None,
+                    error_hint: None,
+                }
+            }
+            None => ToolResult {
+                success: false,
+                output: String::new(),
+                error: Some("No plan has been proposed. Use 'propose' action first.".into()),
+                error_hint: None,
+            },
+        }
+    }
+
+    fn handle_reject(&self) -> ToolResult {
+        let mut plan_guard = self.proposed_plan.write().unwrap();
+
+        match plan_guard.as_mut() {
+            Some(plan) => {
+                plan.status = PlanStatus::Rejected;
+
+                ToolResult {
+                    success: true,
+                    output: "Plan rejected. Let me know what you'd like to change and I'll create a new plan.".into(),
+                    error: None,
+                    error_hint: None,
+                }
+            }
+            None => ToolResult {
+                success: false,
+                output: String::new(),
+                error: Some("No plan has been proposed. Use 'propose' action first.".into()),
+                error_hint: None,
+            },
+        }
+    }
+
+    /// Check if there's a pending plan awaiting approval
+    pub fn has_pending_plan(&self) -> bool {
+        self.proposed_plan
+            .read()
+            .unwrap()
+            .as_ref()
+            .map(|p| p.status == PlanStatus::PendingApproval)
+            .unwrap_or(false)
+    }
+
+    /// Get the current plan status
+    pub fn get_plan_status(&self) -> Option<String> {
+        self.proposed_plan
+            .read()
+            .unwrap()
+            .as_ref()
+            .map(|p| p.status.to_string())
     }
 }
 
@@ -229,8 +465,11 @@ impl Tool for TaskPlanTool {
     }
 
     fn description(&self) -> &str {
-        "Manage a task checklist for the current session. Use to break complex work into steps and track progress.\n\
-         Actions: create (batch), add (single), update (change status), list (view all), delete (clear all)."
+        "Manage a task checklist for the current session. Use to break complex work into \
+         steps and track progress.\n\
+         Actions: create (batch), add (single), update (change status), list (view all), \
+         delete (clear all), propose (submit plan for approval), confirm (approve plan), \
+         reject (decline plan)."
     }
 
     fn parameters_schema(&self) -> serde_json::Value {
@@ -239,7 +478,7 @@ impl Tool for TaskPlanTool {
             "properties": {
                 "action": {
                     "type": "string",
-                    "enum": ["create", "add", "update", "list", "delete"],
+                    "enum": ["create", "add", "update", "list", "delete", "propose", "confirm", "reject"],
                     "description": "Operation to perform"
                 },
                 "tasks": {
@@ -269,6 +508,23 @@ impl Tool for TaskPlanTool {
                     "type": "string",
                     "enum": ["pending", "in_progress", "completed"],
                     "description": "For 'update': new status"
+                },
+                "plan": {
+                    "type": "object",
+                    "description": "For 'propose': the build plan to submit for approval",
+                    "properties": {
+                        "project_name": { "type": "string" },
+                        "tech_stack": { "type": "string" },
+                        "features": {
+                            "type": "array",
+                            "items": { "type": "string" }
+                        },
+                        "steps": {
+                            "type": "array",
+                            "items": { "type": "string" }
+                        }
+                    },
+                    "required": ["project_name", "tech_stack", "steps"]
                 }
             },
             "required": ["action"]
@@ -314,6 +570,7 @@ impl Tool for TaskPlanTool {
                         success: false,
                         output: String::new(),
                         error: Some("Parameter 'id' is required for update".into()),
+                        error_hint: None,
                     });
                 }
                 if status.is_empty() {
@@ -321,6 +578,7 @@ impl Tool for TaskPlanTool {
                         success: false,
                         output: String::new(),
                         error: Some("Parameter 'status' is required for update".into()),
+                        error_hint: None,
                     });
                 }
                 Ok(self.handle_update(id, status))
@@ -332,12 +590,32 @@ impl Tool for TaskPlanTool {
                 }
                 Ok(self.handle_delete())
             }
+            "propose" => {
+                if let Err(r) = self.enforce_mutation() {
+                    return Ok(r);
+                }
+                let plan_val = args.get("plan").cloned().unwrap_or(json!({}));
+                Ok(self.handle_propose(&plan_val))
+            }
+            "confirm" => {
+                if let Err(r) = self.enforce_mutation() {
+                    return Ok(r);
+                }
+                Ok(self.handle_confirm())
+            }
+            "reject" => {
+                if let Err(r) = self.enforce_mutation() {
+                    return Ok(r);
+                }
+                Ok(self.handle_reject())
+            }
             other => Ok(ToolResult {
                 success: false,
                 output: String::new(),
                 error: Some(format!(
-                    "Unknown action '{other}'. Valid: create, add, update, list, delete"
+                    "Unknown action '{other}'. Valid: create, add, update, list, delete, propose, confirm, reject"
                 )),
+                error_hint: None,
             }),
         }
     }
@@ -368,6 +646,7 @@ mod tests {
         assert!(schema["properties"]["tasks"].is_object());
         assert!(schema["properties"]["id"].is_object());
         assert!(schema["properties"]["status"].is_object());
+        assert!(schema["properties"]["plan"].is_object());
     }
 
     #[tokio::test]
@@ -500,10 +779,163 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn propose_plan() {
+        let tool = default_tool();
+
+        let r = tool
+            .execute(json!({
+                "action": "propose",
+                "plan": {
+                    "project_name": "My Landing Page",
+                    "tech_stack": "Next.js",
+                    "features": ["Hero section", "Contact form"],
+                    "steps": ["Create project", "Build components", "Deploy"]
+                }
+            }))
+            .await
+            .unwrap();
+
+        assert!(r.success);
+        assert!(r.output.contains("BUILD PLAN"));
+        assert!(r.output.contains("My Landing Page"));
+        assert!(r.output.contains("Next.js"));
+        assert!(r.output.contains("Hero section"));
+        assert!(r.output.contains("Type \"Start\" to proceed"));
+
+        // Check that plan is pending
+        assert!(tool.has_pending_plan());
+        assert_eq!(tool.get_plan_status(), Some("pending_approval".to_string()));
+    }
+
+    #[tokio::test]
+    async fn propose_plan_without_steps_fails() {
+        let tool = default_tool();
+
+        let r = tool
+            .execute(json!({
+                "action": "propose",
+                "plan": {
+                    "project_name": "Bad Plan",
+                    "tech_stack": "Next.js",
+                    "features": [],
+                    "steps": []
+                }
+            }))
+            .await
+            .unwrap();
+
+        assert!(!r.success);
+        assert!(r.error.unwrap().contains("at least one step"));
+    }
+
+    #[tokio::test]
+    async fn confirm_plan() {
+        let tool = default_tool();
+
+        // First propose a plan
+        tool.execute(json!({
+            "action": "propose",
+            "plan": {
+                "project_name": "Test Project",
+                "tech_stack": "Next.js",
+                "features": ["Feature 1"],
+                "steps": ["Step 1", "Step 2", "Step 3"]
+            }
+        }))
+        .await
+        .unwrap();
+
+        // Confirm the plan
+        let r = tool.execute(json!({ "action": "confirm" })).await.unwrap();
+        assert!(r.success);
+        assert!(r.output.contains("approved"));
+        assert!(r.output.contains("Test Project"));
+        assert!(r.output.contains("3 task(s)"));
+
+        // Plan should now be approved
+        assert!(!tool.has_pending_plan());
+        assert_eq!(tool.get_plan_status(), Some("approved".to_string()));
+
+        // Tasks should be created from steps
+        let r = tool.execute(json!({ "action": "list" })).await.unwrap();
+        assert!(r.output.contains("[1] [pending] Step 1"));
+        assert!(r.output.contains("[2] [pending] Step 2"));
+        assert!(r.output.contains("[3] [pending] Step 3"));
+    }
+
+    #[tokio::test]
+    async fn reject_plan() {
+        let tool = default_tool();
+
+        // First propose a plan
+        tool.execute(json!({
+            "action": "propose",
+            "plan": {
+                "project_name": "Rejected Project",
+                "tech_stack": "Next.js",
+                "steps": ["Step 1"]
+            }
+        }))
+        .await
+        .unwrap();
+
+        // Reject the plan
+        let r = tool.execute(json!({ "action": "reject" })).await.unwrap();
+        assert!(r.success);
+        assert!(r.output.contains("rejected"));
+
+        // Plan should now be rejected
+        assert!(!tool.has_pending_plan());
+        assert_eq!(tool.get_plan_status(), Some("rejected".to_string()));
+    }
+
+    #[tokio::test]
+    async fn confirm_without_propose_fails() {
+        let tool = default_tool();
+
+        let r = tool.execute(json!({ "action": "confirm" })).await.unwrap();
+        assert!(!r.success);
+        assert!(r.error.unwrap().contains("No plan has been proposed"));
+    }
+
+    #[tokio::test]
+    async fn reject_without_propose_fails() {
+        let tool = default_tool();
+
+        let r = tool.execute(json!({ "action": "reject" })).await.unwrap();
+        assert!(!r.success);
+        assert!(r.error.unwrap().contains("No plan has been proposed"));
+    }
+
+    #[tokio::test]
+    async fn confirm_rejected_plan_fails() {
+        let tool = default_tool();
+
+        // Propose and reject
+        tool.execute(json!({
+            "action": "propose",
+            "plan": {
+                "project_name": "Test",
+                "tech_stack": "Next.js",
+                "steps": ["Step 1"]
+            }
+        }))
+        .await
+        .unwrap();
+
+        tool.execute(json!({ "action": "reject" })).await.unwrap();
+
+        // Try to confirm rejected plan
+        let r = tool.execute(json!({ "action": "confirm" })).await.unwrap();
+        assert!(!r.success);
+        assert!(r.error.unwrap().contains("previously rejected"));
+    }
+
+    #[tokio::test]
     async fn readonly_blocks_mutations() {
         let tool = readonly_tool();
 
-        for action in &["create", "add", "update", "delete"] {
+        for action in &["create", "add", "update", "delete", "propose", "confirm", "reject"] {
             let mut args = json!({ "action": action });
             if *action == "create" {
                 args["tasks"] = json!([{ "title": "t" }]);
@@ -514,6 +946,13 @@ mod tests {
             if *action == "update" {
                 args["id"] = json!(1);
                 args["status"] = json!("completed");
+            }
+            if *action == "propose" {
+                args["plan"] = json!({
+                    "project_name": "Test",
+                    "tech_stack": "Next.js",
+                    "steps": ["Step 1"]
+                });
             }
             let r = tool.execute(args).await.unwrap();
             assert!(

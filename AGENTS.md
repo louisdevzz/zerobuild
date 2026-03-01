@@ -166,9 +166,28 @@ The ZeroBuild Agent uses these 8 E2B tools to build web apps:
 3. `e2b_write_file` to create/edit files
 4. `e2b_read_file` / `e2b_list_files` to inspect code
 5. `e2b_run_command` to start dev server (`npm run dev &`)
-6. `e2b_get_preview_url` (port=3000) to get preview URL
-7. `e2b_save_snapshot` to persist code to SQLite
-8. Send preview URL to user
+6. **Auto-test:** Run `curl -s -o /dev/null -w "%{http_code}" http://localhost:3000` to verify the server responds with 200
+7. `e2b_get_preview_url` (port=3000) to get preview URL
+8. `e2b_save_snapshot` to persist code to SQLite
+9. Send preview URL to user
+
+**Progress reporting (REQUIRED):**
+
+Before every significant tool call, the agent MUST send a short, plain-language status message:
+
+| Tool call | User message |
+|---|---|
+| `e2b_create_sandbox` | "Starting up the build environment..." |
+| `e2b_run_command { npx create-next-app }` | "Creating your project..." |
+| `e2b_run_command { npm install }` | "Installing dependencies..." |
+| `e2b_run_command { npm run dev }` | "Starting the dev server..." |
+| `e2b_get_preview_url` | "Getting your preview link..." |
+| `github_push` | "Pushing your code to GitHub..." |
+
+**Rules:**
+- Never paste raw shell/npm output unless there is an error
+- Keep messages short (one line)
+- Use plain present-tense verbs ("Creating", "Installing", "Starting")
 
 ### 5.2 Plan enforcement
 
@@ -234,14 +253,52 @@ When `npm run build` fails:
 
 ### 5.6 GitHub OAuth deploy flow
 
-1. ZeroBuild Agent calls `request_deploy` tool
-2. If GitHub not connected: error with `/auth/github` URL
-3. User visits `/auth/github` → GitHub OAuth → callback stores token in SQLite
-4. User tells agent "done" → agent retries `request_deploy`
-5. Tool reads token from SQLite, creates repo + pushes code via GitHub git trees API
-6. Returns repo URL to user
+1. ZeroBuild Agent calls `github_connect` tool (no args)
+2. If GitHub not connected: tool returns full OAuth URL in `error` field — forward it exactly to the user
+3. User clicks URL → GitHub OAuth → callback stores token in SQLite
+4. User says "done" → agent retries the original operation
+5. `github_push` reads token from SQLite, creates/updates repo via GitHub git trees API
+6. Returns repo URL + branch + commit SHA to user
 
 OAuth tokens stored in `src/store/tokens.rs` — never in logs or Telegram messages.
+
+### 5.7 Hashtag Workflow Routing (Required)
+
+When a user message contains one of these hashtags, treat it as an explicit workflow signal:
+
+| Hashtag | Workflow | Primary tools |
+|---|---|---|
+| `#issue` / `#issues` / `#bug` | Create or list GitHub issues | `github_create_issue`, `github_list_issues` |
+| `#pr` / `#review` | Create PR or review an existing PR | `github_create_pr`, `github_review_pr`, `github_analyze_pr` |
+| `#feature` | Create feature issue + push to a new branch | `github_create_issue` + `github_push` (with `branch` param) |
+| `#deploy` / `#push` | Push snapshot to GitHub | `github_push` |
+| `#build` | Build in E2B sandbox | E2B tool workflow (section 5.1) |
+| `#repo` | List or inspect repositories | `github_list_repos`, `github_list_repo_files` |
+| `#read` / `#file` | Read a file from an existing repo | `github_read_file` |
+
+**Extracting repo context from the message:**
+1. Look for explicit `owner/repo` pattern in the message (e.g. `myorg/myapp`)
+2. Fall back to `active_project.github_repo` in memory (if session resumption is active)
+3. If both absent, ask: "Which repository should I use?"
+
+**Branch context:**
+- Default branch: `main` unless the user specifies otherwise
+- For `#feature` workflow: create a branch named after the feature, e.g. `feature/add-login`
+- For `#pr` workflow: ask for head + base branch if not stated
+
+### 5.8 Default Workflow (No Hashtag)
+
+When a user message has **no hashtag**, infer intent from content:
+
+| Message content pattern | Inferred workflow |
+|---|---|
+| Describes a new app, website, tool, or page to build | E2B sandbox build workflow (section 5.1) |
+| References an existing GitHub repo, issue number, or PR number | GitHub ops workflow — call the relevant tool |
+| Contains a GitHub URL (github.com/...) | Parse context from URL → call the relevant tool |
+| Asks a question about an existing project | Answer directly; do not start building |
+| Ambiguous — cannot determine intent | Ask ONE clarifying question: "Do you want me to build something new, or work on an existing project?" |
+
+**Do not ask multiple clarifying questions.** One question, wait for answer, then proceed.
 
 ### 5.7 Config fields
 
@@ -250,11 +307,84 @@ ZeroBuild-specific fields in `ZerobuildConfig`:
 | Field | Default | Purpose |
 |-------|---------|---------|
 | `e2b_api_key` | `""` | E2B API key (prefer `E2B_API_KEY` env var) |
-| `e2b_template` | `"code-interpreter-v1"` | E2B sandbox template |
+| `e2b_template` | `"base"` | E2B sandbox template |
 | `e2b_timeout_ms` | `600000` | Sandbox timeout (10 minutes) |
 | `github_client_id` | `""` | GitHub OAuth app client ID |
 | `github_client_secret` | `""` | GitHub OAuth app client secret |
 | `db_path` | `"./data/zerobuild.db"` | SQLite database path |
+
+### 5.9 GitHub Ops Language and Content Rules (Required)
+
+**ALL GitHub issues and pull requests MUST be written in English — no exceptions.**
+
+This applies to:
+- Issue title and body
+- PR title and body
+- Review comments
+- Close/edit comments
+
+Even if the user writes their request in another language, the agent MUST translate the content into English before calling any GitHub tool. Do not pass Vietnamese, Chinese, or any non-English content to `github_create_issue`, `github_create_pr`, `github_edit_issue`, or any review tool.
+
+**Issue title format:**
+Use a bracketed type prefix: `[Feature]: ...`, `[Bug]: ...`, `[Chore]: ...`, `[Docs]: ...`
+
+**Before creating an issue or PR, verify:**
+1. The target repo (`owner/repo`) exists and the user's token has write access — call `github_list_repos` or confirm with user if unsure
+2. Labels exist in the repo — only use labels that exist, or omit the `labels` field entirely
+3. Content is in English
+
+**If GitHub API returns an error:**
+- `403` / `404` → token does not have write access to that repo or the repo does not exist
+- `422` → labels do not exist in the repo (remove labels and retry without them)
+- `503` → transient GitHub error or org-level access control block — retry once, then report the error URL to the user
+
+### 5.10 Auto-Invoke Product Advisor After Deploy
+
+After every successful `github_push`, the agent MUST automatically call `product_advisor` with the active project context to generate improvement suggestions.
+
+**Procedure:**
+1. Push completes successfully
+2. Agent calls `product_advisor` with:
+   - `project_name`: from active project context
+   - `description`: from active project context
+   - `current_features`: derived from the built project
+   - `focus`: "all" (default)
+3. Agent presents suggestions to the user in this format:
+   ```
+   💡 IMPROVEMENT SUGGESTIONS — [Project Name]
+   ═══════════════════════════════════════════
+   
+   🔴 HIGH PRIORITY:
+      • [recommendation 1]
+      • [recommendation 2]
+   
+   🟡 MEDIUM PRIORITY:
+      • [recommendation 3]
+   
+   🔵 LONG-TERM:
+      • [recommendation 4]
+   
+   Which improvement would you like to start with?
+   ```
+
+This closes the loop — every completed deploy ends with actionable next steps.
+
+### 5.11 Error Recovery and Failure Escalation
+
+**Error classification:** When a tool fails, classify the error from `ToolResult`:
+
+| Category | Detection pattern |
+|---|---|
+| Dependency error | contains `"not found"`, `"cannot find module"`, `"missing"` |
+| Build error | contains `"SyntaxError"`, `"TypeError"`, `"compilation failed"` |
+| Runtime error | contains `"ECONNREFUSED"`, `"port already in use"`, `"SIGKILL"` |
+| Config error | contains `"invalid config"`, `"missing env"` |
+
+**Consecutive failure escalation:** Track consecutive failures per tool in the agent loop. After 3 consecutive failures on the same tool, inject a clarification prompt:
+
+> "I'm having trouble with this step. Would you like me to try a different approach?"
+
+This prevents silent infinite retry loops and gives users a way to intervene.
 
 ---
 

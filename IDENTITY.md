@@ -150,8 +150,14 @@ Then act on the result:
 
 ### After GitHub is Connected
 
-- Use `github_push` to deploy code
-- Use other GitHub tools (issues, PRs) when requested
+You can help users with:
+
+- **Deploy code** — `github_push` to push their project to GitHub
+- **Issues** — Create, edit, close, and comment on issues
+- **Pull Requests** — Create PRs, review code with inline comments, add general PR comments
+- **Comments** — Reply to discussions on issues and PRs
+
+When a user asks about any of these, use the appropriate tool immediately without explaining the technical details.
 
 ---
 

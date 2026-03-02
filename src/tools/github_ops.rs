@@ -2562,6 +2562,354 @@ impl Tool for GitHubPostInlineCommentsTool {
     }
 }
 
+// ── github_comment_issue ───────────────────────────────────────────────────────
+
+pub struct GitHubCommentIssueTool {
+    config: Arc<ZerobuildConfig>,
+}
+
+impl GitHubCommentIssueTool {
+    pub fn new(config: Arc<ZerobuildConfig>) -> Self {
+        Self { config }
+    }
+}
+
+#[async_trait]
+impl Tool for GitHubCommentIssueTool {
+    fn name(&self) -> &str {
+        "github_comment_issue"
+    }
+
+    fn description(&self) -> &str {
+        "Add a comment to an existing GitHub issue."
+    }
+
+    fn parameters_schema(&self) -> serde_json::Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "repo": {
+                    "type": "string",
+                    "description": "Repository name (e.g. my-app)"
+                },
+                "owner": {
+                    "type": "string",
+                    "description": "Repository owner (GitHub username or org). Defaults to the authenticated user."
+                },
+                "issue_number": {
+                    "type": "integer",
+                    "description": "Issue number to comment on"
+                },
+                "body": {
+                    "type": "string",
+                    "description": "Comment body text (Markdown supported)"
+                }
+            },
+            "required": ["repo", "issue_number", "body"]
+        })
+    }
+
+    async fn execute(&self, args: serde_json::Value) -> anyhow::Result<ToolResult> {
+        let db_path = PathBuf::from(&self.config.db_path);
+        let tok = match load_token(&db_path) {
+            Ok(t) => t,
+            Err(e) => return Ok(e),
+        };
+        let repo = args["repo"].as_str().unwrap_or("").trim().to_string();
+        let issue_number = match args["issue_number"].as_u64() {
+            Some(n) => n,
+            None => {
+                return Ok(ToolResult {
+                    success: false,
+                    output: String::new(),
+                    error: Some("issue_number is required".to_string()),
+                    error_hint: None,
+                });
+            }
+        };
+        let body = args["body"].as_str().unwrap_or("").to_string();
+
+        if repo.is_empty() {
+            return Ok(ToolResult {
+                success: false,
+                output: String::new(),
+                error: Some("repo is required".to_string()),
+                error_hint: None,
+            });
+        }
+        if body.is_empty() {
+            return Ok(ToolResult {
+                success: false,
+                output: String::new(),
+                error: Some("body is required".to_string()),
+                error_hint: None,
+            });
+        }
+
+        let owner = match resolve_owner(&args, tok.username.as_deref()) {
+            Ok(o) => o,
+            Err(e) => return Ok(e),
+        };
+
+        let payload = json!({ "body": body });
+        let url = format!("{GITHUB_API_BASE}/repos/{owner}/{repo}/issues/{issue_number}/comments");
+        let result = github_post_api(&tok.token, &url, payload).await?;
+        if !result.success {
+            return Ok(result);
+        }
+
+        let parsed: serde_json::Value = serde_json::from_str(&result.output).unwrap_or_default();
+        let comment_id = parsed["id"].as_u64().unwrap_or(0);
+        let html_url = parsed["html_url"].as_str().unwrap_or("");
+
+        Ok(ToolResult {
+            success: true,
+            output: format!("Comment #{comment_id} added to issue #{issue_number}\nURL: {html_url}"),
+            error: None,
+            error_hint: None,
+        })
+    }
+}
+
+// ── github_comment_pr ──────────────────────────────────────────────────────────
+
+pub struct GitHubCommentPRTool {
+    config: Arc<ZerobuildConfig>,
+}
+
+impl GitHubCommentPRTool {
+    pub fn new(config: Arc<ZerobuildConfig>) -> Self {
+        Self { config }
+    }
+}
+
+#[async_trait]
+impl Tool for GitHubCommentPRTool {
+    fn name(&self) -> &str {
+        "github_comment_pr"
+    }
+
+    fn description(&self) -> &str {
+        "Add a general comment (not inline review) to a GitHub pull request. \
+         For inline code comments, use github_post_inline_comments instead."
+    }
+
+    fn parameters_schema(&self) -> serde_json::Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "repo": {
+                    "type": "string",
+                    "description": "Repository name (e.g. my-app)"
+                },
+                "owner": {
+                    "type": "string",
+                    "description": "Repository owner (GitHub username or org). Defaults to the authenticated user."
+                },
+                "pr_number": {
+                    "type": "integer",
+                    "description": "Pull request number to comment on"
+                },
+                "body": {
+                    "type": "string",
+                    "description": "Comment body text (Markdown supported)"
+                }
+            },
+            "required": ["repo", "pr_number", "body"]
+        })
+    }
+
+    async fn execute(&self, args: serde_json::Value) -> anyhow::Result<ToolResult> {
+        let db_path = PathBuf::from(&self.config.db_path);
+        let tok = match load_token(&db_path) {
+            Ok(t) => t,
+            Err(e) => return Ok(e),
+        };
+        let repo = args["repo"].as_str().unwrap_or("").trim().to_string();
+        let pr_number = match args["pr_number"].as_u64() {
+            Some(n) => n,
+            None => {
+                return Ok(ToolResult {
+                    success: false,
+                    output: String::new(),
+                    error: Some("pr_number is required".to_string()),
+                    error_hint: None,
+                });
+            }
+        };
+        let body = args["body"].as_str().unwrap_or("").to_string();
+
+        if repo.is_empty() {
+            return Ok(ToolResult {
+                success: false,
+                output: String::new(),
+                error: Some("repo is required".to_string()),
+                error_hint: None,
+            });
+        }
+        if body.is_empty() {
+            return Ok(ToolResult {
+                success: false,
+                output: String::new(),
+                error: Some("body is required".to_string()),
+                error_hint: None,
+            });
+        }
+
+        let owner = match resolve_owner(&args, tok.username.as_deref()) {
+            Ok(o) => o,
+            Err(e) => return Ok(e),
+        };
+
+        // PR comments use the same endpoint as issue comments
+        let payload = json!({ "body": body });
+        let url = format!("{GITHUB_API_BASE}/repos/{owner}/{repo}/issues/{pr_number}/comments");
+        let result = github_post_api(&tok.token, &url, payload).await?;
+        if !result.success {
+            return Ok(result);
+        }
+
+        let parsed: serde_json::Value = serde_json::from_str(&result.output).unwrap_or_default();
+        let comment_id = parsed["id"].as_u64().unwrap_or(0);
+        let html_url = parsed["html_url"].as_str().unwrap_or("");
+
+        Ok(ToolResult {
+            success: true,
+            output: format!("Comment #{comment_id} added to PR #{pr_number}\nURL: {html_url}"),
+            error: None,
+            error_hint: None,
+        })
+    }
+}
+
+// ── github_reply_comment ───────────────────────────────────────────────────────
+
+pub struct GitHubReplyCommentTool {
+    config: Arc<ZerobuildConfig>,
+}
+
+impl GitHubReplyCommentTool {
+    pub fn new(config: Arc<ZerobuildConfig>) -> Self {
+        Self { config }
+    }
+}
+
+#[async_trait]
+impl Tool for GitHubReplyCommentTool {
+    fn name(&self) -> &str {
+        "github_reply_comment"
+    }
+
+    fn description(&self) -> &str {
+        "Reply to an existing GitHub comment (creates a threaded reply)."
+    }
+
+    fn parameters_schema(&self) -> serde_json::Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "repo": {
+                    "type": "string",
+                    "description": "Repository name (e.g. my-app)"
+                },
+                "owner": {
+                    "type": "string",
+                    "description": "Repository owner (GitHub username or org). Defaults to the authenticated user."
+                },
+                "comment_id": {
+                    "type": "integer",
+                    "description": "ID of the comment to reply to (from github_comment_issue, github_comment_pr, or github_post_inline_comments)"
+                },
+                "body": {
+                    "type": "string",
+                    "description": "Reply body text (Markdown supported)"
+                }
+            },
+            "required": ["repo", "comment_id", "body"]
+        })
+    }
+
+    async fn execute(&self, args: serde_json::Value) -> anyhow::Result<ToolResult> {
+        let db_path = PathBuf::from(&self.config.db_path);
+        let tok = match load_token(&db_path) {
+            Ok(t) => t,
+            Err(e) => return Ok(e),
+        };
+        let repo = args["repo"].as_str().unwrap_or("").trim().to_string();
+        let comment_id = match args["comment_id"].as_u64() {
+            Some(n) => n,
+            None => {
+                return Ok(ToolResult {
+                    success: false,
+                    output: String::new(),
+                    error: Some("comment_id is required".to_string()),
+                    error_hint: None,
+                });
+            }
+        };
+        let body = args["body"].as_str().unwrap_or("").to_string();
+
+        if repo.is_empty() {
+            return Ok(ToolResult {
+                success: false,
+                output: String::new(),
+                error: Some("repo is required".to_string()),
+                error_hint: None,
+            });
+        }
+        if body.is_empty() {
+            return Ok(ToolResult {
+                success: false,
+                output: String::new(),
+                error: Some("body is required".to_string()),
+                error_hint: None,
+            });
+        }
+
+        let owner = match resolve_owner(&args, tok.username.as_deref()) {
+            Ok(o) => o,
+            Err(e) => return Ok(e),
+        };
+
+        // Create a reply by mentioning the original comment
+        // Note: GitHub's API doesn't have a native "reply" endpoint for all comment types
+        // We use the in_reply_to parameter for PR review comments
+        let payload = json!({ 
+            "body": body,
+            "in_reply_to": comment_id
+        });
+        let url = format!("{GITHUB_API_BASE}/repos/{owner}/{repo}/pulls/comments/{comment_id}/replies");
+        let result = github_post_api(&tok.token, &url, payload).await;
+        
+        // If the PR comment reply fails, try as a regular issue comment
+        let result = match result {
+            Ok(r) if r.success => r,
+            _ => {
+                // Fallback: post as regular comment referencing the original
+                let ref_body = format!("> Replying to comment #{}\n\n{}", comment_id, body);
+                let payload = json!({ "body": ref_body });
+                let url = format!("{GITHUB_API_BASE}/repos/{owner}/{repo}/issues/comments/{comment_id}");
+                github_post_api(&tok.token, &url, payload).await?
+            }
+        };
+        
+        if !result.success {
+            return Ok(result);
+        }
+
+        let parsed: serde_json::Value = serde_json::from_str(&result.output).unwrap_or_default();
+        let reply_id = parsed["id"].as_u64().unwrap_or(0);
+        let html_url = parsed["html_url"].as_str().unwrap_or("");
+
+        Ok(ToolResult {
+            success: true,
+            output: format!("Reply #{reply_id} posted\nURL: {html_url}"),
+            error: None,
+            error_hint: None,
+        })
+    }
+}
+
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]

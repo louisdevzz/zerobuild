@@ -307,8 +307,11 @@ When a user message contains one of these hashtags or trigger phrases, you MUST 
 | Hashtag / Trigger | Workflow | Primary tools | Do NOT use |
 |---|---|---|---|
 | `#issue` / `#issues` / `#bug` / "create issue" / "file issue" / "report bug" | Create GitHub issue | `github_create_issue` | `glob_search`, `file_read` |
+| `#plan` / "plan issue" / "create detailed issue" / "issue with plan" | Create structured issue with implementation plan | `github_read_repo` → [plan] → `github_create_issue` | `github_create_issue` (alone) |
+| `#comment` / "comment on issue" / "add comment" | Add comment to issue or PR | `github_comment_issue` or `github_comment_pr` | `file_write` |
 | `#pr` / "create PR" / "open PR" / "submit PR" | Create PR | `github_create_pr` | `file_write`, `shell` |
-| `#review` / "review PR" / "inline review" / "code review" | Review PR with inline comments | `github_get_pr` → `github_get_pr_diff` → `github_post_inline_comments` | `file_write`, `shell` |
+| `#review` / "review PR code" / "code review" / "review this PR" | Deep code review with inline suggestions | `github_get_pr` → `github_get_pr_diff` → `github_read_file` → `github_post_inline_comments` | `file_write`, `shell` |
+| `#summarize` / "summarize PR" / "what does this PR do" | PR summary/description (what changed) | `github_get_pr` → `github_get_pr_diff` | `github_post_inline_comments` |
 | `#feature` / "new feature" / "feature request" | Create feature issue | `github_create_issue` + `github_push` | `task_plan` (alone) |
 | `#deploy` / `#push` / "deploy" / "push to github" | Push code to GitHub | `github_push` | `sandbox_write_file` |
 | `#build` / "build" / "compile" | Build in sandbox | Sandbox tool workflow (section 5.1) | `shell` (local) |
@@ -556,23 +559,105 @@ When handing off work, include:
 4. Remaining risks / unknowns
 5. Next recommended action
 
-### 5.14 PR Code Review Workflow (inline comments)
+### 5.14 PR Code Review Workflow
 
-Use this workflow when the user asks to review a pull request with inline code comments (CodeRabbit-style).
+Use this workflow when the user asks to **review code** in a pull request. This is NOT a summary - it is a deep code review AI that analyzes code quality, patterns, and suggests improvements.
+
+**Difference from Summary:**
+- **PR Summary** = What changed (high-level description)
+- **Code Review** = Deep analysis of HOW the code was written + suggestions for improvement
 
 **Required tools in order:**
 
-1. `github_get_pr` → obtain `head.sha` (commit_id), title, and PR metadata
-2. `github_get_pr_diff` → read the file-by-file diff (filename, status, patch text)
-3. [Agent analyzes diff — generates overall summary and inline comments per file/line]
-4. `github_post_inline_comments` → post the review with inline comments
+1. `github_connect` → verify GitHub authentication first
+2. `github_get_pr` → obtain `head.sha` (commit_id), title, PR metadata
+3. `github_get_pr_diff` → read the file-by-file diff (filename, status, patch text)
+4. **CRITICAL: Read full source files** that have changes → use `github_read_file` to get context around the diff (not just the patch!)
+5. [Agent analyzes - see Analysis Checklist below]
+6. `github_post_inline_comments` → post detailed review with inline comments
+
+**Analysis Checklist:**
+
+For each changed file, analyze:
+
+1. **Code Quality Issues**
+   - Unused imports/variables
+   - Missing error handling
+   - Hardcoded values that should be configurable
+   - Code duplication (DRY violations)
+   - Overly complex functions that need refactoring
+
+2. **Logic & Correctness**
+   - Potential bugs or edge cases
+   - Race conditions
+   - Off-by-one errors
+   - Incorrect error propagation
+   - Missing validation/sanitization
+
+3. **Performance & Efficiency**
+   - Unnecessary allocations
+   - Inefficient algorithms (O(n²) when could be O(n))
+   - Missing caching opportunities
+   - Blocking operations in async contexts
+   - String concatenation in loops
+
+4. **Security**
+   - SQL injection risks
+   - XSS vulnerabilities
+   - Hardcoded secrets/tokens
+   - Unsafe deserialization
+   - Path traversal risks
+
+5. **Maintainability**
+   - Functions too long (>50 lines)
+   - Missing documentation for public APIs
+   - Inconsistent naming conventions
+   - Magic numbers without constants
+   - Deep nesting that needs early returns
+
+6. **Idiomatic Patterns**
+   - Language-specific best practices
+   - Common anti-patterns
+   - Better standard library usage
+   - Proper error types vs strings
+
+**Review Comment Format:**
+
+```
+🔴 **Issue**: [Brief description of the problem]
+
+**Why**: [Explanation of why this is a problem]
+
+**Suggestion**: 
+```rust
+// Show the improved code here
+```
+
+**Alternative**: [If there's more than one way to fix it]
+```
 
 **Rules:**
-- Only comment on lines that belong to added or modified hunks (lines that exist in the new file).
-- Use `event = COMMENT` for neutral observations; `REQUEST_CHANGES` when a fix is required; `APPROVE` only when the PR is clean.
-- Skip binary files and files without a `patch` field (shown as `[binary or too large to show]`).
-- The `commit_id` passed to `github_post_inline_comments` must come from `github_get_pr` (`head.sha`), not be guessed.
-- Keep inline comment bodies concise and actionable.
+- **ALWAYS** read the full source file via `github_read_file`, not just the diff patch
+- Comment on specific lines that were ADDED or MODIFIED (not deleted lines)
+- Use `event = REQUEST_CHANGES` if there are issues to fix; `COMMENT` for minor observations; `APPROVE` only if code is clean
+- Skip binary files and files without a `patch` field
+- `commit_id` MUST be from `github_get_pr` (`head.sha`)
+- Maximum 20 inline comments per review (prioritize critical issues)
+- Focus on **actionable** suggestions - don't just point out problems, suggest the fix
+
+**Example Review Flow:**
+```
+User: "review PR #4"
+→ "Fetching PR metadata..."
+→ github_get_pr → get commit_id
+→ "Reading PR diff..."
+→ github_get_pr_diff → see files changed
+→ "Analyzing source code..."
+→ github_read_file for each changed file → get full context
+→ [checklist above]
+→ "Posting review comments..."
+→ github_post_inline_comments with detailed suggestions
+```
 
 **Progress messages (REQUIRED):**
 
@@ -580,7 +665,254 @@ Use this workflow when the user asks to review a pull request with inline code c
 |---|---|
 | `github_get_pr` | "Fetching PR metadata..." |
 | `github_get_pr_diff` | "Reading PR diff..." |
+| `github_read_file` | "Reading source files for context..." |
+| Analysis | "Analyzing code quality..." |
 | `github_post_inline_comments` | "Posting review comments..." |
+
+---
+
+### 5.15 Issue Planner Workflow
+
+Use this workflow when the user wants to create a **well-planned, actionable issue** - Issue Planner. Instead of just a basic description, the issue should include implementation planning, task breakdown, and considerations.
+
+**Difference from Basic Issue:**
+- **Basic Issue** = What needs to be done (simple description)
+- **Issue Planner** = What + How + Task breakdown + Considerations + Acceptance criteria
+
+**Required tools in order:**
+
+1. `github_connect` → verify GitHub authentication
+2. **Context gathering (if needed):**
+   - `github_read_repo` → read codebase to understand current implementation
+   - `github_list_files` → explore project structure
+   - `glob_search` / `file_read` → find relevant code patterns
+3. [Agent analyzes and plans - see Planning Checklist below]
+4. `github_create_issue` → create structured issue with plan
+
+**Issue Planner Analysis Checklist:**
+
+Structure the issue with these sections:
+
+1. **Overview** (Executive Summary)
+   - One-paragraph description of the problem/feature
+   - Why this matters (business/technical value)
+   - Priority level (P0/P1/P2)
+
+2. **Background & Context**
+   - Current state of the system
+   - Related previous issues/PRs (if known)
+   - Technical constraints or dependencies
+
+3. **Proposed Solution(s)**
+   - Option 1: Recommended approach
+   - Option 2: Alternative approach (if applicable)
+   - Pros/cons of each option
+
+4. **Implementation Plan** (Task Breakdown)
+   ```markdown
+   ### Phase 1: Preparation
+   - [ ] Research current implementation
+   - [ ] Define interfaces/APIs
+   - [ ] Write test cases
+
+   ### Phase 2: Core Implementation
+   - [ ] Implement feature/fix
+   - [ ] Add tests
+   - [ ] Update documentation
+
+   ### Phase 3: Validation
+   - [ ] Run test suite
+   - [ ] Performance testing (if applicable)
+   - [ ] Code review
+   ```
+
+5. **Technical Considerations**
+   - Potential risks and mitigations
+   - Breaking changes (if any)
+   - Migration strategy
+   - Performance implications
+   - Security considerations
+
+6. **Acceptance Criteria**
+   - Specific, testable conditions for completion
+   - Definition of "done"
+   - Edge cases to handle
+
+7. **References & Resources**
+   - Related documentation
+   - External links/specs
+   - Similar implementations elsewhere
+
+**Issue Format Template:**
+
+```markdown
+## 🎯 Overview
+[Brief description of what needs to be done and why]
+
+## 📋 Background
+[Current state, context, and any relevant history]
+
+## 💡 Proposed Solution
+
+### Recommended Approach
+[Primary solution with technical details]
+
+**Pros:**
+- [Benefit 1]
+- [Benefit 2]
+
+**Cons:**
+- [Trade-off 1]
+- [Trade-off 2]
+
+### Alternative Approach (Optional)
+[Alternative if primary isn't feasible]
+
+## 📊 Implementation Plan
+
+### Phase 1: [Name]
+- [ ] Task 1
+- [ ] Task 2
+- [ ] Task 3
+
+### Phase 2: [Name]
+- [ ] Task 1
+- [ ] Task 2
+
+## ⚠️ Technical Considerations
+- **Risk:** [Risk description] → **Mitigation:** [How to handle]
+- **Breaking Change:** [Description] → **Migration:** [Steps]
+- **Performance:** [Impact and monitoring]
+
+## ✅ Acceptance Criteria
+- [ ] Criterion 1
+- [ ] Criterion 2
+- [ ] Criterion 3
+
+## 📚 References
+- [Link 1]
+- [Link 2]
+```
+
+**Special Issue Types:**
+
+**Bug Issue Planner:**
+- Add "Reproduction Steps" section
+- Add "Root Cause Analysis" section
+- Include "Environment" (versions, OS, etc.)
+- Stack traces or error logs
+
+**Feature Issue Planner:**
+- Add "User Stories" section
+- Include "UI/UX Mockups" description (if applicable)
+- API design considerations
+- Backward compatibility plan
+
+**Refactor Issue Planner:**
+- Current architecture diagram/description
+- Target architecture
+- Migration strategy
+- Risk assessment for regression
+
+**Progress Messages:**
+
+| Step | User message |
+|---|---|
+| Context gathering | "Analyzing codebase for context..." |
+| Planning | "Creating implementation plan..." |
+| `github_create_issue` | "Creating structured issue..." |
+
+**Example Flow:**
+```
+User: "plan issue for adding OAuth authentication"
+→ "Analyzing codebase for context..."
+→ github_read_repo / file_read → understand auth system
+→ "Creating implementation plan..."
+→ [Generate structured issue with phases, tasks, considerations]
+→ "Creating structured issue..."
+→ github_create_issue with full plan
+```
+
+---
+
+### 5.16 GitHub Comment Workflow
+
+Use these tools to add comments to existing issues and PRs.
+
+**Available Tools:**
+
+| Tool | Purpose | Use When |
+|---|---|---|
+| `github_comment_issue` | Add comment to an issue | User wants to comment on issue #N |
+| `github_comment_pr` | Add general comment to PR | User wants to comment on PR (not inline review) |
+| `github_reply_comment` | Reply to existing comment | User wants to reply to a specific comment |
+
+**Difference from Review:**
+- **PR Review** (`github_post_inline_comments`) = Inline code comments on specific lines
+- **PR Comment** (`github_comment_pr`) = General comment on the PR (like "LGTM" or questions)
+
+**Required tools in order:**
+
+1. `github_connect` → verify GitHub authentication
+2. `github_comment_issue` / `github_comment_pr` / `github_reply_comment` → post comment
+
+**Parameters:**
+
+```json
+// github_comment_issue
+type: "object",
+properties: {
+    "repo": "Repository name",
+    "owner": "Repository owner (optional, defaults to auth user)",
+    "issue_number": "Issue number",
+    "body": "Comment text (Markdown supported)"
+}
+
+// github_comment_pr
+type: "object",
+properties: {
+    "repo": "Repository name",
+    "owner": "Repository owner (optional)",
+    "pr_number": "PR number",
+    "body": "Comment text (Markdown supported)"
+}
+
+// github_reply_comment
+type: "object",
+properties: {
+    "repo": "Repository name",
+    "owner": "Repository owner (optional)",
+    "comment_id": "ID of comment to reply to",
+    "body": "Reply text (Markdown supported)"
+}
+```
+
+**Progress Messages:**
+
+| Step | User message |
+|---|---|
+| `github_comment_issue` | "Adding comment to issue..." |
+| `github_comment_pr` | "Adding comment to PR..." |
+| `github_reply_comment` | "Replying to comment..." |
+
+**Example Flows:**
+
+```
+User: "comment on issue #42 in my-app: 'I can reproduce this'"
+→ github_connect
+→ github_comment_issue(repo="my-app", issue_number=42, body="I can reproduce this")
+→ "Comment added to issue #42"
+
+User: "comment on PR #5: 'Please add tests'"
+→ github_connect
+→ github_comment_pr(repo="my-app", pr_number=5, body="Please add tests")
+→ "Comment added to PR #5"
+
+User: "reply to comment #123456: 'Fixed in latest commit'"
+→ github_connect
+→ github_reply_comment(repo="my-app", comment_id=123456, body="Fixed in latest commit")
+→ "Reply posted"
+```
 
 ---
 

@@ -9,6 +9,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+#### GitHub Connector Enhancements
+- **New Comment Tools**: Added 3 new tools for commenting on repositories
+  - `github_comment_issue`: Add comments to existing issues
+  - `github_comment_pr`: Add general comments to PRs (non-inline)
+  - `github_reply_comment`: Reply to existing comments (threaded)
+  - Use cases: Q&A on issues, PR feedback, code review discussions
+- **Auto-Configured Fallback Providers**: Onboarding wizard now suggests fallback providers
+  - Based on primary provider selection (e.g., kimi-code → moonshot → openrouter → anthropic)
+  - Improves reliability when primary provider fails
+  - Configurable via `[reliability].fallback_providers`
+
+#### Documentation
+- **AGENTS.md**: New sections 5.14, 5.15, 5.16
+  - 5.14: PR Code Review Workflow
+  - 5.15: Issue Planner Workflow (structured issue creation)
+  - 5.16: GitHub Comment Workflow
+- **Hashtag Workflows**: Added `#review`, `#summarize`, `#plan`, `#comment` triggers
+
 #### Vibe Coding UX Improvements
 - **Plan Confirmation Flow** (`task_plan` tool): New `propose`, `confirm`, and `reject` actions
   - Agent must propose a build plan and get user confirmation before building

@@ -79,11 +79,11 @@ pub use file_read::FileReadTool;
 pub use file_write::FileWriteTool;
 pub use git_operations::GitOperationsTool;
 pub use github_ops::{
-    GitHubAnalyzePRTool, GitHubCloseIssueTool, GitHubConnectTool, GitHubCreateIssueTool,
-    GitHubCreateIssueWithHashtagsTool, GitHubCreatePRTool, GitHubEditIssueTool, GitHubGetIssueTool,
-    GitHubGetPRDiffTool, GitHubGetPRTool, GitHubListIssuesTool, GitHubListPRsTool,
-    GitHubListReposTool, GitHubPostInlineCommentsTool, GitHubReviewPRTool,
-    GitHubReviewPRWithChecklistTool, GitHubUploadImageTool,
+    GitHubAnalyzePRTool, GitHubCloseIssueTool, GitHubCommentIssueTool, GitHubCommentPRTool,
+    GitHubConnectTool, GitHubCreateIssueTool, GitHubCreateIssueWithHashtagsTool, GitHubCreatePRTool,
+    GitHubEditIssueTool, GitHubGetIssueTool, GitHubGetPRDiffTool, GitHubGetPRTool,
+    GitHubListIssuesTool, GitHubListPRsTool, GitHubListReposTool, GitHubPostInlineCommentsTool,
+    GitHubReplyCommentTool, GitHubReviewPRTool, GitHubReviewPRWithChecklistTool, GitHubUploadImageTool,
 };
 pub use github_push::GitHubPushTool;
 pub use github_read_repo::GitHubReadRepoTool;
@@ -255,6 +255,9 @@ pub fn sandbox_tools(
         Box::new(GitHubAnalyzePRTool::new(zerobuild_config.clone())),
         Box::new(GitHubGetPRDiffTool::new(zerobuild_config.clone())),
         Box::new(GitHubPostInlineCommentsTool::new(zerobuild_config.clone())),
+        Box::new(GitHubCommentIssueTool::new(zerobuild_config.clone())),
+        Box::new(GitHubCommentPRTool::new(zerobuild_config.clone())),
+        Box::new(GitHubReplyCommentTool::new(zerobuild_config.clone())),
         Box::new(GitHubUploadImageTool::new(zerobuild_config.clone())),
         Box::new(GitHubConnectTool::new(zerobuild_config)),
     ]

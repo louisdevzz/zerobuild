@@ -22,6 +22,26 @@ For resilient fallback chains (`reliability.fallback_providers`), each fallback
 provider resolves credentials independently. The primary provider's explicit
 credential is not reused for fallback providers.
 
+## Auto-Configured Fallback Providers
+
+When running `zerobuild onboard`, the wizard automatically suggests fallback providers
+based on your primary provider selection. This improves reliability by automatically
+switching to alternative providers if the primary fails.
+
+**Example fallback chains:**
+- `kimi-code` → `moonshot` → `openrouter` → `anthropic`
+- `anthropic` → `openrouter` → `openai` → `gemini`
+- `openrouter` → `anthropic` → `openai` → `gemini`
+- `ollama` (local) → `openrouter` → `anthropic` → `groq`
+
+**Configuration in `config.toml`:**
+```toml
+[reliability]
+provider_retries = 2
+provider_backoff_ms = 500
+fallback_providers = ["openrouter", "anthropic"]
+```
+
 ## Provider Catalog
 
 | Canonical ID | Aliases | Local | Provider-specific env var(s) |

@@ -53,7 +53,7 @@ ZeroBuild is **the autonomous build engine** that turns your ideas into working 
 - 🏗️ **Plan-before-build workflow** — Agent proposes a structured plan; you confirm before any code is written
 - 🔒 **Isolated sandboxes** — Every build runs in an isolated local process sandbox; host credentials and filesystem stay untouched
 - 🌐 **Live preview URLs** — Get public HTTPS links to running web apps
-- 🚀 **GitHub connector** — Connect your GitHub account via OAuth to create repos, push code, open issues, manage PRs, and post inline code reviews — all from chat
+- 🚀 **GitHub connector** — Connect your GitHub account via OAuth to create repos, push code, open/comment on issues, manage PRs, post inline code reviews, and reply to discussions — all from chat
 - 🧠 **Intelligent model routing** — Automatic model recommendations based on task type
 - 💬 **Multi-channel support** — Use Telegram, Discord, Slack, or CLI — your choice
 
@@ -114,7 +114,7 @@ Local Process Sandbox             ← Isolated Build Environment
 4. **Build** — Agent scaffolds and codes in a sandbox
 5. **Preview** — For web apps: live URL generated instantly
 6. **Iterate** — Request changes; agent edits and rebuilds
-7. **Connectors (GitHub, etc.)** — Create repos, push code, open issues, or manage PRs — all from chat
+7. **Connectors (GitHub, etc.)** — Create repos, push code, open/comment on issues, manage PRs, review code — all from chat
 
 ---
 
@@ -129,7 +129,7 @@ Local Process Sandbox             ← Isolated Build Environment
 | **Session Persistence** | SQLite snapshots save project state; resume builds across sessions |
 | **Multi-Provider LLM** | OpenAI, Anthropic, OpenRouter, DeepSeek, Gemini, and more |
 | **Secure by Default** | OAuth tokens stored in SQLite only; never in logs or messages |
-| **Connectors (GitHub)** | Create issues, PRs, reviews, and push code — all via chat |
+| **Connectors (GitHub)** | Create/comment on issues & PRs, code reviews, push code — all via chat |
 
 ---
 
@@ -143,7 +143,7 @@ Local Process Sandbox             ← Isolated Build Environment
 | **Open Source** | ✅ Yes | ❌ No | ❌ No | ❌ No | ✅ Yes |
 | **Self-Hostable** | ✅ Yes | ❌ No | ❌ No | ❌ No | ✅ Yes |
 | **Runtime** | Rust (<10MB) | Cloud | Cloud | Cloud | Node.js |
-| **Connectors (GitHub)** | ✅ Full (repos, issues, PRs, inline review, push) | ❌ No | ❌ No | ❌ No | Manual |
+| **Connectors (GitHub)** | ✅ Full (repos, issues, PRs, comments, inline review, push) | ❌ No | ❌ No | ❌ No | Manual |
 
 ---
 

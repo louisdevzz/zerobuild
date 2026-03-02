@@ -35,7 +35,8 @@ Key ZeroBuild extension points:
 
 - `src/tools/sandbox/` — sandbox tools (create, run, write, read, list, preview, public-url, snapshot, restore, kill)
 - `src/tools/deploy.rs` — `request_deploy` tool (GitHub push)
-- `src/tools/github_ops.rs` — GitHub ops tools (create/edit/close issue, PR, review)
+- `src/tools/github_ops.rs` — GitHub ops tools (create/edit/close/comment on issues, PRs, reviews, inline comments)
+- `src/onboard/wizard.rs` — onboarding wizard with auto-configured fallback providers
 - `src/gateway/api.rs` — `/internal/notify` endpoint
 - `src/gateway/oauth.rs` — GitHub OAuth flow
 - `IDENTITY.md` — ZeroBuild user-facing persona definition

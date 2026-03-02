@@ -626,6 +626,509 @@ impl AgentMessageBus {
 
 ---
 
+## 3.8 Heartbeat Protocol - Real-Time Status Monitoring
+
+### Problem
+Without heartbeat, Orchestrator doesn't know:
+- Which agents are alive or crashed
+- What each agent is currently doing
+- Progress of long-running tasks
+- When to notify user about status
+
+### Solution
+
+```rust
+/// Heartbeat message sent by agents periodically
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HeartbeatMessage {
+    pub agent_id: AgentId,
+    pub timestamp: DateTime<Utc>,
+    pub status: AgentStatus,
+    pub current_task: Option<TaskInfo>,
+    pub metrics: AgentMetrics,
+    pub capabilities: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TaskInfo {
+    pub task_id: Uuid,
+    pub task_type: String,
+    pub description: String,
+    pub progress_percent: u8,
+    pub started_at: DateTime<Utc>,
+    pub estimated_completion: Option<DateTime<Utc>>,
+    pub blocked_on: Option<BlockedReason>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum BlockedReason {
+    WaitingForDependency { agent_id: AgentId, artifact: String },
+    WaitingForUserInput { question: String },
+    ResourceUnavailable { resource: String },
+    RateLimited { retry_after: Duration },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AgentMetrics {
+    pub cpu_usage: f32,
+    pub memory_usage_mb: u64,
+    pub tasks_completed: u64,
+    pub tasks_failed: u64,
+    pub avg_task_duration_secs: f64,
+}
+```
+
+### Heartbeat Flow
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    Heartbeat Protocol Flow                      │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│  Every 5 seconds:                                              │
+│                                                                 │
+│  Developer Agent ──Heartbeat──→ Orchestrator                   │
+│  {                                                             │
+│    status: Busy,                                               │
+│    current_task: {                                             │
+│      type: "implement_feature",                                │
+│      progress: 65%,                                            │
+│      blocked_on: WaitingForDependency {                        │
+│        agent_id: uiux-designer,                                │
+│        artifact: "design_spec"                                 │
+│      }                                                         │
+│    }                                                           │
+│  }                                                             │
+│                                                                 │
+│  Orchestrator detects blockage → Notify User                   │
+│  "Developer waiting for UI/UX design (estimated: 10 min left)"  │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Implementation
+
+```rust
+/// Heartbeat manager runs in each agent
+pub struct HeartbeatManager {
+    agent_id: AgentId,
+    bus: Arc<AgentMessageBus>,
+    interval: Duration,
+    last_sent: Instant,
+}
+
+impl HeartbeatManager {
+    pub async fn run(mut self) {
+        let mut ticker = tokio::time::interval(self.interval);
+        
+        loop {
+            ticker.tick().await;
+            
+            let heartbeat = self.collect_heartbeat().await;
+            
+            if let Err(e) = self.send_heartbeat(heartbeat).await {
+                error!("Failed to send heartbeat: {}", e);
+                
+                // Retry with backoff
+                if self.consecutive_failures > 3 {
+                    self.enter_recovery_mode().await;
+                }
+            }
+        }
+    }
+    
+    async fn collect_heartbeat(&self) -> HeartbeatMessage {
+        HeartbeatMessage {
+            agent_id: self.agent_id.clone(),
+            timestamp: Utc::now(),
+            status: self.get_current_status(),
+            current_task: self.get_current_task(),
+            metrics: self.collect_metrics(),
+            capabilities: self.get_capabilities(),
+        }
+    }
+}
+
+/// Orchestrator's heartbeat monitor
+pub struct HeartbeatMonitor {
+    /// Track last heartbeat from each agent
+    last_heartbeats: DashMap<AgentId, Instant>,
+    /// Agents that missed heartbeats
+    missed_heartbeats: DashMap<AgentId, u32>,
+    /// Timeout threshold
+    timeout: Duration,
+}
+
+impl HeartbeatMonitor {
+    pub async fn monitor(&self) {
+        let mut interval = tokio::time::interval(Duration::from_secs(10));
+        
+        loop {
+            interval.tick().await;
+            
+            let now = Instant::now();
+            
+            for entry in self.last_heartbeats.iter() {
+                let elapsed = now.duration_since(*entry.value());
+                
+                if elapsed > self.timeout {
+                    let agent_id = entry.key();
+                    let missed = self.missed_heartbeats
+                        .entry(agent_id.clone())
+                        .or_insert(0);
+                    *missed += 1;
+                    
+                    if *missed >= 3 {
+                        // Agent considered dead
+                        self.handle_agent_timeout(agent_id).await;
+                    } else {
+                        warn!("Agent {} missed heartbeat ({}/3)", agent_id, missed);
+                    }
+                }
+            }
+        }
+    }
+    
+    async fn handle_agent_timeout(&self, agent_id: &AgentId) {
+        error!("Agent {} considered dead after missed heartbeats", agent_id);
+        
+        // Notify user
+        self.notify_user(Notification::AgentTimeout {
+            agent_id: agent_id.clone(),
+            action: "Attempting to respawn agent".to_string(),
+        }).await;
+        
+        // Trigger recovery
+        self.orchestrator.respawn_agent(agent_id).await;
+    }
+}
+```
+
+### User Notifications via Heartbeat
+
+```rust
+impl Orchestrator {
+    /// Process heartbeat and notify user of significant events
+    pub async fn process_heartbeat(&self, heartbeat: HeartbeatMessage) {
+        // Store heartbeat
+        self.heartbeat_store.insert(
+            heartbeat.agent_id.clone(), 
+            heartbeat.clone()
+        );
+        
+        // Check for blocked agents
+        if let Some(task) = &heartbeat.current_task {
+            if let Some(blocked) = &task.blocked_on {
+                match blocked {
+                    BlockedReason::WaitingForDependency { agent_id, artifact } => {
+                        self.notify_user(format!(
+                            "⏳ {} is waiting for {} to complete {} (ETA: {})",
+                            heartbeat.agent_id.role,
+                            agent_id.role,
+                            artifact,
+                            task.estimated_completion
+                                .map(|t| t.to_rfc3339())
+                                .unwrap_or("unknown".to_string())
+                        )).await;
+                    }
+                    BlockedReason::WaitingForUserInput { question } => {
+                        self.notify_user(format!(
+                            "❓ {} needs your input: {}",
+                            heartbeat.agent_id.role, question
+                        )).await;
+                    }
+                    _ => {}
+                }
+            }
+        }
+        
+        // Report progress to user periodically
+        if self.should_report_progress(&heartbeat) {
+            self.report_progress_to_user(&heartbeat).await;
+        }
+    }
+}
+```
+
+---
+
+## 3.9 Busy State Handling - Queue & Priority Management
+
+### Problem
+When Developer sends message to Designer but Designer is busy:
+- ❌ Message lost or timeout
+- ❌ Developer doesn't know why no response
+- ❌ No queue mechanism
+- ❌ No priority handling
+
+### Solution: Message Queue with Priority
+
+```rust
+/// Message queue for each agent
+pub struct AgentMessageQueue {
+    /// High priority messages (commands, urgent requests)
+    high_priority: Arc<Mutex<VecDeque<QueuedMessage>>>,
+    /// Normal priority messages (standard requests)
+    normal_priority: Arc<Mutex<VecDeque<QueuedMessage>>>,
+    /// Low priority messages (notifications, updates)
+    low_priority: Arc<Mutex<VecDeque<QueuedMessage>>>,
+    /// Messages waiting for specific condition
+    waiting: Arc<Mutex<Vec<WaitingMessage>>>,
+}
+
+#[derive(Debug, Clone)]
+pub struct QueuedMessage {
+    pub message: AgentMessage,
+    pub priority: Priority,
+    pub enqueued_at: Instant,
+    pub retry_count: u32,
+}
+
+#[derive(Debug, Clone)]
+pub struct WaitingMessage {
+    pub message: AgentMessage,
+    pub condition: WaitCondition,
+    pub timeout: Option<Duration>,
+}
+
+#[derive(Debug, Clone)]
+pub enum WaitCondition {
+    /// Wait for agent to become available
+    AgentAvailable(AgentId),
+    /// Wait for artifact to be published
+    ArtifactPublished(ArtifactType),
+    /// Wait for specific time
+    TimeReached(DateTime<Utc>),
+    /// Wait for custom condition
+    Custom(Box<dyn Fn() -> bool + Send + Sync>),
+}
+```
+
+### Queue Management
+
+```rust
+impl AgentMessageQueue {
+    /// Enqueue message with appropriate priority
+    pub async fn enqueue(&self, message: AgentMessage) -> Result<()> {
+        let priority = self.calculate_priority(&message);
+        let queued = QueuedMessage {
+            message,
+            priority,
+            enqueued_at: Instant::now(),
+            retry_count: 0,
+        };
+        
+        match priority {
+            Priority::High => self.high_priority.lock().await.push_back(queued),
+            Priority::Normal => self.normal_priority.lock().await.push_back(queued),
+            Priority::Low => self.low_priority.lock().await.push_back(queued),
+        }
+        
+        Ok(())
+    }
+    
+    /// Dequeue next message (respects priority)
+    pub async fn dequeue(&self) -> Option<QueuedMessage> {
+        // Check high priority first
+        if let Some(msg) = self.high_priority.lock().await.pop_front() {
+            return Some(msg);
+        }
+        
+        // Then normal
+        if let Some(msg) = self.normal_priority.lock().await.pop_front() {
+            return Some(msg);
+        }
+        
+        // Finally low
+        self.low_priority.lock().await.pop_front()
+    }
+    
+    /// Wait for specific condition before delivering
+    pub async fn wait_for(
+        &self, 
+        message: AgentMessage, 
+        condition: WaitCondition,
+        timeout: Option<Duration>
+    ) {
+        let waiting = WaitingMessage {
+            message,
+            condition,
+            timeout,
+        };
+        
+        self.waiting.lock().await.push(waiting);
+    }
+    
+    /// Process waiting messages when conditions change
+    pub async fn process_waiting(&self, event: ConditionEvent) {
+        let mut waiting = self.waiting.lock().await;
+        let ready: Vec<_> = waiting
+            .extract_if(|w| self.check_condition(&w.condition, &event))
+            .collect();
+        drop(waiting);
+        
+        for msg in ready {
+            self.enqueue(msg.message).await.ok();
+        }
+    }
+}
+```
+
+### Busy State Communication Flow
+
+```
+┌────────────────────────────────────────────────────────────────────┐
+│           Busy State Handling Example                               │
+├────────────────────────────────────────────────────────────────────┤
+│                                                                    │
+│  Dev: "I need the design spec"                                      │
+│    │                                                               │
+│    ▼                                                               │
+│  Designer Queue: [Busy - implementing hero section]                │
+│    │                                                               │
+│    ▼                                                               │
+│  Designer responds:                                                │
+│    "I'm busy with hero section (ETA: 5 min).                       │
+│     I'll send design spec when done or queue your request?"        │
+│    │                                                               │
+│    ▼                                                               │
+│  Options:                                                          │
+│    1. Wait (block until designer free)                             │
+│    2. Queue (continue other work, get notified when ready)         │
+│    3. Alternative (ask UI/UX-2 if available)                       │
+│                                                                    │
+└────────────────────────────────────────────────────────────────────┘
+```
+
+### Implementation: Smart Busy Handling
+
+```rust
+impl AgentMessageBus {
+    /// Send message with busy state handling
+    pub async fn send_with_busy_handling(
+        &self,
+        to: AgentId,
+        message: AgentMessage,
+        strategy: BusyStrategy,
+    ) -> Result<SendResult> {
+        // Check if agent is busy
+        let agent_status = self.get_agent_status(&to).await?;
+        
+        match agent_status {
+            AgentStatus::Available => {
+                // Agent free, send immediately
+                self.send(message).await?;
+                Ok(SendResult::Delivered)
+            }
+            AgentStatus::Busy { current_task, eta } => {
+                match strategy {
+                    BusyStrategy::Wait { timeout } => {
+                        // Block and wait
+                        info!("Waiting for agent {} to become available (ETA: {:?})", to, eta);
+                        self.wait_for_agent(to, timeout).await?;
+                        self.send(message).await?;
+                        Ok(SendResult::DeliveredAfterWait)
+                    }
+                    BusyStrategy::Queue { priority } => {
+                        // Queue for later
+                        self.queue_message(to, message, priority).await?;
+                        Ok(SendResult::Queued { 
+                            position: self.queue_position(&to).await 
+                        })
+                    }
+                    BusyStrategy::Alternative { fallback_agents } => {
+                        // Try alternative agents
+                        for alt in fallback_agents {
+                            if self.get_agent_status(&alt).await? == AgentStatus::Available {
+                                let mut alt_message = message.clone();
+                                alt_message.header.to = Some(alt);
+                                self.send(alt_message).await?;
+                                return Ok(SendResult::DeliveredToAlternative(alt));
+                            }
+                        }
+                        // All alternatives busy, fallback to queue
+                        self.queue_message(to, message, Priority::Normal).await?;
+                        Ok(SendResult::Queued { position: 1 })
+                    }
+                    BusyStrategy::FailFast => {
+                        Err(anyhow!("Agent {} is busy with: {}", to, current_task))
+                    }
+                }
+            }
+            AgentStatus::Offline => {
+                // Queue for when agent comes back
+                self.queue_message(to, message, Priority::Normal).await?;
+                Ok(SendResult::QueuedForReconnect)
+            }
+        }
+    }
+}
+
+/// Strategy for handling busy agents
+pub enum BusyStrategy {
+    /// Wait for agent to become available
+    Wait { timeout: Duration },
+    /// Queue message for later processing
+    Queue { priority: Priority },
+    /// Try alternative agents
+    Alternative { fallback_agents: Vec<AgentId> },
+    /// Fail immediately if agent busy
+    FailFast,
+}
+```
+
+### Progress Broadcasting
+
+```rust
+/// Agent broadcasts progress updates during long tasks
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProgressUpdate {
+    pub agent_id: AgentId,
+    pub task_id: Uuid,
+    pub task_name: String,
+    pub percent_complete: u8,
+    pub current_step: String,
+    pub completed_steps: Vec<String>,
+    pub remaining_steps: Vec<String>,
+    pub eta_seconds: Option<u64>,
+}
+
+/// Example: Designer broadcasts progress
+impl UiUxDesignerAgent {
+    async fn design_homepage(&self) -> Result<()> {
+        let steps = vec![
+            "Research competitor designs",
+            "Create wireframe",
+            "Design hero section",
+            "Design feature grid",
+            "Design footer",
+            "Export assets",
+        ];
+        
+        for (i, step) in steps.iter().enumerate() {
+            // Do work...
+            self.work_on_step(step).await?;
+            
+            // Broadcast progress
+            self.broadcast_progress(ProgressUpdate {
+                agent_id: self.id.clone(),
+                task_id: self.current_task.id,
+                task_name: "Homepage Design".to_string(),
+                percent_complete: ((i + 1) * 100 / steps.len()) as u8,
+                current_step: step.to_string(),
+                completed_steps: steps[..i].to_vec(),
+                remaining_steps: steps[i+1..].to_vec(),
+                eta_seconds: Some((steps.len() - i) * 600), // 10 min per step
+            }).await?;
+        }
+        
+        Ok(())
+    }
+}
+```
+
+---
+
 ## 4. Agent Pool Management
 
 ### 4.1 Pool Architecture

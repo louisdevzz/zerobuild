@@ -185,6 +185,7 @@ pub async fn run_wizard(force: bool) -> Result<Config> {
         query_classification: crate::config::QueryClassificationConfig::default(),
         transcription: crate::config::TranscriptionConfig::default(),
         sop: crate::config::SopConfig::default(),
+        factory: crate::config::FactoryConfig::default(),
         zerobuild: zerobuild_config,
     };
 
@@ -545,6 +546,7 @@ async fn run_quick_setup_with_home(
         query_classification: crate::config::QueryClassificationConfig::default(),
         transcription: crate::config::TranscriptionConfig::default(),
         sop: crate::config::SopConfig::default(),
+        factory: crate::config::FactoryConfig::default(),
         zerobuild: crate::config::ZerobuildConfig::default(),
     };
 

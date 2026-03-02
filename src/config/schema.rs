@@ -208,6 +208,10 @@ pub struct Config {
     #[serde(default)]
     pub sop: SopConfig,
 
+    /// Multi-agent factory workflow configuration (`[factory]`).
+    #[serde(default)]
+    pub factory: FactoryConfig,
+
     /// ZeroBuild multi-tenant orchestration configuration (`[zerobuild]`).
     #[serde(default)]
     pub zerobuild: ZerobuildConfig,
@@ -251,6 +255,40 @@ fn default_max_depth() -> u32 {
 
 fn default_max_tool_iterations() -> usize {
     10
+}
+
+// ── Factory Config ──────────────────────────────────────────────
+
+/// Multi-agent factory configuration (`[factory]`).
+///
+/// When enabled, registers the `factory_build` tool that orchestrates
+/// specialized agents through phased execution.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct FactoryConfig {
+    /// Enable the multi-agent factory workflow. Default: `false`.
+    #[serde(default)]
+    pub enabled: bool,
+    /// Maximum dev-tester ping-pong iterations before giving up. Default: `5`.
+    #[serde(default = "default_max_ping_pong")]
+    pub max_ping_pong_iterations: usize,
+    /// Per-role provider/model overrides keyed by role name
+    /// (e.g. `"developer"`, `"tester"`, `"business_analyst"`).
+    #[serde(default)]
+    pub provider_overrides: HashMap<String, DelegateAgentConfig>,
+}
+
+impl Default for FactoryConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            max_ping_pong_iterations: default_max_ping_pong(),
+            provider_overrides: HashMap::new(),
+        }
+    }
+}
+
+fn default_max_ping_pong() -> usize {
+    5
 }
 
 // ── Hardware Config (wizard-driven) ─────────────────────────────
@@ -3429,6 +3467,7 @@ impl Default for Config {
             query_classification: QueryClassificationConfig::default(),
             transcription: TranscriptionConfig::default(),
             sop: SopConfig::default(),
+            factory: FactoryConfig::default(),
             zerobuild: ZerobuildConfig::default(),
         }
     }
@@ -4772,6 +4811,8 @@ default_temperature = 0.7
             hooks: HooksConfig::default(),
             hardware: HardwareConfig::default(),
             transcription: TranscriptionConfig::default(),
+            sop: SopConfig::default(),
+            factory: FactoryConfig::default(),
             zerobuild: ZerobuildConfig::default(),
         };
 
@@ -4946,6 +4987,8 @@ tool_dispatcher = "xml"
             hooks: HooksConfig::default(),
             hardware: HardwareConfig::default(),
             transcription: TranscriptionConfig::default(),
+            sop: SopConfig::default(),
+            factory: FactoryConfig::default(),
             zerobuild: ZerobuildConfig::default(),
         };
 

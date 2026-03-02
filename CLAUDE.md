@@ -1,14 +1,17 @@
-# CLAUDE.md — ZeroBuild Agent Engineering Protocol
+# CLAUDE.md — ZeroBuild Engineering Protocol
 
 This file defines the default working protocol for Claude agents in this repository.
 Scope: entire repository.
 
 ## 1) Project Snapshot (Read First)
 
-**This repository is ZeroBuild** — a multi-channel project builder forked from [ZeroClaw](https://github.com/zeroclaw-labs/zeroclaw). See `AGENTS.md` for ZeroBuild-specific rules.
+**This repository is ZeroBuild — the Autonomous Software Factory.** A Virtual Software Company powered entirely by AI, forked from [ZeroClaw](https://github.com/zeroclaw-labs/zeroclaw). See `AGENTS.md` for ZeroBuild-specific rules.
 
-**ZeroBuild** is a single-tier AI agent system:
-- **ZeroBuild Agent** (Rust / ZeroBuild runtime) — handles user conversations over any configured channel (Telegram, Discord, Slack, and others), proposes plans, builds projects of any type in isolated local sandboxes, calls GitHub ops tools, and pushes to GitHub. Web projects additionally get a preview URL; non-web projects deliver build artifacts or output.
+**ZeroBuild** is a hierarchical multi-agent system that automates the entire software development lifecycle:
+- **Orchestrator (CEO/Master Agent)** — Receives user ideas, analyzes feasibility, spawns specialized sub-agents, coordinates phased execution, and reports progress.
+- **Specialized Sub-Agents** (BA, UI/UX, Developer, Tester, DevOps) — Each operates with dedicated context and permissions, collaborating through a shared blackboard to deliver production-ready software.
+- **Single-agent mode** (default) — One unified agent handles the full workflow for simpler tasks.
+- **Factory mode** (opt-in) — The Orchestrator spawns the full AI team for complex projects.
 
 **ZeroBuild** (the underlying runtime) is a Rust-first autonomous agent runtime optimized for:
 
@@ -160,6 +163,7 @@ Required:
 - `src/channels/` — channel implementations (Telegram, Discord, Slack, and others via `Channel` trait)
 - `src/tools/` — tool execution surface (shell, file, memory, browser, zerobuild_*)
 - `src/peripherals/` — hardware peripherals (STM32, RPi GPIO); see `docs/hardware-peripherals-design.md`
+- `src/factory/` — multi-agent factory (roles, blackboard, workflow, orchestrator tool)
 - `src/runtime/` — runtime adapters (currently native)
 - `docs/` — task-oriented documentation system
 - `.github/` — CI, templates, automation workflows
@@ -173,6 +177,7 @@ Required:
 - `src/tools/github_ops.rs` — GitHub ops tools
 - `src/gateway/oauth.rs` — GitHub OAuth handlers
 - `src/store/` — SQLite persistence (sandbox session, project snapshots, GitHub token)
+- `src/factory/` — multi-agent factory workflow (roles, blackboard, workflow orchestrator, `factory_build` tool)
 
 ## 4.1 Documentation System Contract (Required)
 
@@ -224,7 +229,7 @@ Required docs governance rules:
 Use these tiers when deciding validation depth and review rigor.
 
 - **Low risk**: docs/chore/tests-only changes
-- **Medium risk**: most `src/**` behavior changes without boundary/security impact
+- **Medium risk**: most `src/**` behavior changes without boundary/security impact, `src/factory/**` (multi-agent workflow, agent spawning)
 - **High risk**: `src/security/**`, `src/runtime/**`, `src/gateway/**`, `src/tools/**`, `.github/workflows/**`, access-control boundaries
 
 When uncertain, classify as higher risk.
@@ -287,7 +292,7 @@ Use these rules to keep the trait/factory architecture stable under growth.
 - Extend capabilities by adding trait implementations + factory wiring first; avoid cross-module rewrites for isolated features.
 - Keep dependency direction inward to contracts: concrete integrations depend on trait/config/util layers, not on other concrete integrations.
 - Avoid creating cross-subsystem coupling (for example provider code importing channel internals, tool code mutating gateway policy directly).
-- Keep module responsibilities single-purpose: orchestration in `agent/`, transport in `channels/`, model I/O in `providers/`, policy in `security/`, execution in `tools/`.
+- Keep module responsibilities single-purpose: orchestration in `agent/`, transport in `channels/`, model I/O in `providers/`, policy in `security/`, execution in `tools/`, multi-agent workflow in `factory/`.
 - Introduce new shared abstractions only after repeated use (rule-of-three), with at least one real caller in current scope.
 - For config/schema changes, treat keys as public contract: document defaults, compatibility impact, and migration/rollback path.
 
@@ -326,7 +331,16 @@ Use these rules to keep the trait/factory architecture stable under growth.
 - Keep observability useful but non-sensitive.
 - For `.github/workflows/**` changes, include Actions allowlist impact in PR notes and update `docs/actions-source-policy.md` when sources change.
 
-### 7.6 Docs System / README / IA Changes
+### 7.6 Adding Factory Agent Roles
+
+- Define the new role variant in `AgentRole` enum in `src/factory/roles.rs`.
+- Add a `default_for()` match arm with system prompt, allowed tools, temperature, and agentic flag.
+- Wire the role into the appropriate workflow phase in `src/factory/workflow.rs`.
+- If the role needs new tools, add tools first (playbook 7.3) before referencing them in `allowed_tools`.
+- Add tests for config resolution and role defaults.
+- Update `AGENTS.md` Section 6 (Multi-Agent Factory Workflow) with the new role.
+
+### 7.7 Docs System / README / IA Changes
 
 - Treat docs navigation as product UX: preserve clear pathing from README -> docs hub -> SUMMARY -> category index.
 - Keep top-level nav concise; avoid duplicative links across adjacent nav blocks.

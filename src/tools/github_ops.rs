@@ -2664,7 +2664,9 @@ impl Tool for GitHubCommentIssueTool {
 
         Ok(ToolResult {
             success: true,
-            output: format!("Comment #{comment_id} added to issue #{issue_number}\nURL: {html_url}"),
+            output: format!(
+                "Comment #{comment_id} added to issue #{issue_number}\nURL: {html_url}"
+            ),
             error: None,
             error_hint: None,
         })
@@ -2874,13 +2876,14 @@ impl Tool for GitHubReplyCommentTool {
         // Create a reply by mentioning the original comment
         // Note: GitHub's API doesn't have a native "reply" endpoint for all comment types
         // We use the in_reply_to parameter for PR review comments
-        let payload = json!({ 
+        let payload = json!({
             "body": body,
             "in_reply_to": comment_id
         });
-        let url = format!("{GITHUB_API_BASE}/repos/{owner}/{repo}/pulls/comments/{comment_id}/replies");
+        let url =
+            format!("{GITHUB_API_BASE}/repos/{owner}/{repo}/pulls/comments/{comment_id}/replies");
         let result = github_post_api(&tok.token, &url, payload).await;
-        
+
         // If the PR comment reply fails, try as a regular issue comment
         let result = match result {
             Ok(r) if r.success => r,
@@ -2888,11 +2891,12 @@ impl Tool for GitHubReplyCommentTool {
                 // Fallback: post as regular comment referencing the original
                 let ref_body = format!("> Replying to comment #{}\n\n{}", comment_id, body);
                 let payload = json!({ "body": ref_body });
-                let url = format!("{GITHUB_API_BASE}/repos/{owner}/{repo}/issues/comments/{comment_id}");
+                let url =
+                    format!("{GITHUB_API_BASE}/repos/{owner}/{repo}/issues/comments/{comment_id}");
                 github_post_api(&tok.token, &url, payload).await?
             }
         };
-        
+
         if !result.success {
             return Ok(result);
         }

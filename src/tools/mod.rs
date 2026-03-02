@@ -80,10 +80,11 @@ pub use file_write::FileWriteTool;
 pub use git_operations::GitOperationsTool;
 pub use github_ops::{
     GitHubAnalyzePRTool, GitHubCloseIssueTool, GitHubCommentIssueTool, GitHubCommentPRTool,
-    GitHubConnectTool, GitHubCreateIssueTool, GitHubCreateIssueWithHashtagsTool, GitHubCreatePRTool,
-    GitHubEditIssueTool, GitHubGetIssueTool, GitHubGetPRDiffTool, GitHubGetPRTool,
-    GitHubListIssuesTool, GitHubListPRsTool, GitHubListReposTool, GitHubPostInlineCommentsTool,
-    GitHubReplyCommentTool, GitHubReviewPRTool, GitHubReviewPRWithChecklistTool, GitHubUploadImageTool,
+    GitHubConnectTool, GitHubCreateIssueTool, GitHubCreateIssueWithHashtagsTool,
+    GitHubCreatePRTool, GitHubEditIssueTool, GitHubGetIssueTool, GitHubGetPRDiffTool,
+    GitHubGetPRTool, GitHubListIssuesTool, GitHubListPRsTool, GitHubListReposTool,
+    GitHubPostInlineCommentsTool, GitHubReplyCommentTool, GitHubReviewPRTool,
+    GitHubReviewPRWithChecklistTool, GitHubUploadImageTool,
 };
 pub use github_push::GitHubPushTool;
 pub use github_read_repo::GitHubReadRepoTool;
@@ -123,6 +124,7 @@ pub use web_search_tool::WebSearchTool;
 pub use xlsx_read::XlsxReadTool;
 
 use crate::config::{Config, DelegateAgentConfig};
+use crate::factory::FactoryOrchestratorTool;
 use crate::memory::Memory;
 use crate::runtime::{NativeRuntime, RuntimeAdapter};
 use crate::security::SecurityPolicy;
@@ -463,6 +465,39 @@ pub fn all_tools_with_runtime(
 
     // Add product advisor tool for generating improvement suggestions
     tool_arcs.push(Arc::new(ProductAdvisorTool::new(security.clone())));
+
+    // Add factory orchestrator tool when factory mode is enabled
+    if root_config.factory.enabled {
+        let factory_parent_tools = Arc::new(tool_arcs.clone());
+        let factory_fallback = root_config.api_key.as_deref().and_then(|k| {
+            let trimmed = k.trim();
+            (!trimmed.is_empty()).then(|| trimmed.to_owned())
+        });
+        tool_arcs.push(Arc::new(FactoryOrchestratorTool::new(
+            root_config.factory.max_ping_pong_iterations,
+            root_config.factory.provider_overrides.clone(),
+            crate::providers::ProviderRuntimeOptions {
+                auth_profile_override: None,
+                zerobuild_dir: root_config
+                    .config_path
+                    .parent()
+                    .map(std::path::PathBuf::from),
+                secrets_encrypt: root_config.secrets.encrypt,
+                reasoning_enabled: root_config.runtime.reasoning_enabled,
+            },
+            factory_fallback,
+            root_config
+                .default_provider
+                .clone()
+                .unwrap_or_else(|| "openrouter".to_string()),
+            root_config
+                .default_model
+                .clone()
+                .unwrap_or_else(|| "anthropic/claude-sonnet-4-6".to_string()),
+            factory_parent_tools,
+            root_config.multimodal.clone(),
+        )));
+    }
 
     boxed_registry_from_arcs(tool_arcs)
 }

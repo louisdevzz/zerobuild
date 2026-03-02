@@ -2,11 +2,11 @@
   <img src="zerobuild.png" alt="ZeroBuild" width="200" />
 </p>
 
-<h1 align="center">ZeroBuild 🛠️</h1>
+<h1 align="center">ZeroBuild — Autonomous Software Factory 🏭</h1>
 
 <p align="center">
-  <strong>The autonomous build engine. Zero setup. Zero friction. 100% Rust.</strong><br>
-  ⚡️ <strong>From thought to software — web apps, mobile, backends, scripts, and more. Sandboxed, secure, deploy-ready.</strong>
+  <strong>A Virtual Software Company powered entirely by AI.</strong><br>
+  ⚡️ <strong>From idea to production — a hierarchical multi-agent team of AI specialists (PM, BA, UI/UX, Dev, Tester, DevOps) auto-builds your software. Zero coding. Zero management. Deploy-ready.</strong>
 </p>
 
 <p align="center">
@@ -27,29 +27,40 @@ Built on <a href="https://github.com/zeroclaw-labs/zeroclaw">ZeroClaw</a> — th
 </p>
 
 <p align="center">
-  <strong>Describe what you want to build. Confirm the plan. Watch it come to life.</strong><br />
-  ZeroBuild handles scaffolding, coding, building, and deploying — all in isolated sandboxes.
+  <strong>Describe your idea. The AI team takes over — analyzing, designing, coding, testing, and deploying.</strong><br />
+  No coding skills. No team management. Just results.
 </p>
 
-<p align="center"><code>Autonomous builds · Multi-channel · Isolated sandboxes · GitHub connector · Model-agnostic</code></p>
+<p align="center"><code>Virtual Software Company · Hierarchical Multi-Agent · Zero Management · Isolated Sandboxes · Deploy-Ready</code></p>
 
 ---
 
 ## ✨ What is ZeroBuild?
 
-ZeroBuild is **the autonomous build engine** that turns your ideas into working software. Describe what you want in natural language, confirm the plan, and ZeroBuild scaffolds, codes, builds, and ships it — all inside isolated sandboxes.
+ZeroBuild is a **Virtual Software Company** powered entirely by AI. Through a **Hierarchical Multi-Agent System**, you provide a raw idea in natural language, and ZeroBuild automatically assembles a team of AI specialists — Project Manager, Business Analyst, UI/UX Designer, Developer, Tester, and DevOps Engineer — that coordinate to automate the entire software development lifecycle and deliver a production-ready product.
+
+**Think of it as hiring an entire software team, but it's all AI — and it costs pennies.**
 
 **What you can build:**
 - 🌐 **Web applications** — Next.js, React, Vue, static sites
-- 📱 **Mobile apps** — React Native, Flutter, Ionic  
+- 📱 **Mobile apps** — React Native, Flutter, Ionic
 - ⚙️ **Backend services** — APIs, microservices, serverless functions
 - 🛠️ **CLI tools & scripts** — Python, Node.js, Rust utilities
 - 🎮 **Games & interactive apps** — WebGL, Canvas, game prototypes
 - 🤖 **Automation & bots** — Scrapers, workflows, integrations
 - And anything else you can describe...
 
+**Core values:**
+
+- 🚀 **Idea to Code in minutes** — Shrink development time from months to hours
+- 🤖 **Zero Management** — No coding skills, no team management; the Orchestrator (CEO/Master Agent) handles all task delegation and supervision
+- 💰 **Ultra-low cost** — Replace expensive engineering teams with API token costs
+- 🏭 **Full SDLC automation** — Requirements → Design → Code → Test → Deploy, all automated
+
 **Key capabilities:**
 
+- 🏢 **Hierarchical multi-agent factory** — Orchestrator (CEO) spawns specialized sub-agents (BA, UI/UX, Dev, Tester, DevOps) with dedicated contexts and permissions
+- 🔄 **Cross-agent collaboration** — BA writes PRD → UI/UX creates design spec → Dev implements → Tester validates → automatic fix loops until perfect → DevOps deploys
 - 🏗️ **Plan-before-build workflow** — Agent proposes a structured plan; you confirm before any code is written
 - 🔒 **Isolated sandboxes** — Every build runs in an isolated local process sandbox; host credentials and filesystem stay untouched
 - 🌐 **Live preview URLs** — Get public HTTPS links to running web apps
@@ -83,17 +94,44 @@ See the full [Setup Guide](docs/setup-guide.md) for detailed instructions.
 
 ---
 
-## 🏗️ Architecture
+## 🏗️ Architecture — The Virtual Software Company
 
 ```
-User (Telegram / Discord / Slack / CLI)
+User provides idea (natural language)
     │
     ▼
-ZeroBuild Runtime (Rust)          ← Unified Agent
-  • Receives messages from any channel
-  • Plans builds with user confirmation
-  • Runs code in an isolated local process sandbox
-  • Integrates with GitHub via OAuth (create repos, issues, PRs, push code)
+┌───────────────────────────────────────────────────────┐
+│  🏢 Orchestrator Agent (CEO / Master Agent)           │
+│  • Receives idea, analyzes feasibility                │
+│  • Creates project plan                               │
+│  • Spawns specialized sub-agents                      │
+│  • Supervises & coordinates all phases                │
+│  • Reports progress to user                           │
+│                                                       │
+│  Phase 1: Analysis (Sequential)                       │
+│  ┌──────────────────────────────────┐                 │
+│  │  📋 BA Agent                     │                 │
+│  │  Writes PRD & requirements       │─────┐           │
+│  └──────────────────────────────────┘     │           │
+│                                           ▼           │
+│  Phase 2: Parallel Build (Concurrent)                 │
+│  ┌──────────┐ ┌──────────┐ ┌──────────┐              │
+│  │ 🎨 UI/UX │ │ 💻 Dev   │ │ 🧪 Test  │              │
+│  │  Agent   │ │  Agent   │ │  Agent   │              │
+│  └──────────┘ └──────────┘ └──────────┘              │
+│                     │             │                    │
+│  Phase 3: Integration Loop  ◄─────┘                   │
+│  ┌──────────────────────────────────┐                 │
+│  │  💻 Dev ◄──► 🧪 Tester           │                 │
+│  │  (auto-fix loop until perfect)   │                 │
+│  └──────────────────────────────────┘                 │
+│                     │                                 │
+│  Phase 4: Deployment                                  │
+│  ┌──────────────────────────────────┐                 │
+│  │  🚀 DevOps Agent                 │                 │
+│  │  Deploy to GitHub / live URL     │                 │
+│  └──────────────────────────────────┘                 │
+└───────────────────────────────────────────────────────┘
     │
     ▼
 Local Process Sandbox             ← Isolated Build Environment
@@ -102,19 +140,26 @@ Local Process Sandbox             ← Isolated Build Environment
   • Runs dev servers on localhost with live preview URLs
 ```
 
-**Universal Agent Design:** ZeroBuild uses a single-tier architecture. The same agent handles conversation, planning, coding, and deployment — no backend proxy. Sandbox tools are always available; the agent uses them when you ask to build something, regardless of channel.
+**Dual-mode architecture:** ZeroBuild operates in two modes:
+- **Single-agent mode** (default) — One unified agent handles conversation, planning, coding, and deployment
+- **Factory mode** (opt-in) — The Orchestrator (CEO/Master Agent) spawns specialized sub-agents with dedicated contexts and permissions, coordinating the full SDLC: analysis → parallel build → dev-test iteration loops → deployment
+
+See [ARCHITECTURE.md](ARCHITECTURE.md) for the full multi-agent design.
 
 ---
 
-## 🛠️ Build Workflow
+## 🛠️ How It Works — The Execution Flow
 
-1. **Describe** — Tell the agent what you want to build (web app, mobile app, API, etc.)
-2. **Plan** — Agent proposes tech stack, architecture, and components
+1. **Describe** — Provide your idea in natural language (any language, any channel)
+2. **Plan** — The Orchestrator (CEO) analyzes feasibility and proposes a plan
 3. **Confirm** — You approve the plan (or request changes)
-4. **Build** — Agent scaffolds and codes in a sandbox
-5. **Preview** — For web apps: live URL generated instantly
-6. **Iterate** — Request changes; agent edits and rebuilds
-7. **Connectors (GitHub, etc.)** — Create repos, push code, open/comment on issues, manage PRs, review code — all from chat
+4. **Spawn** — The Orchestrator creates specialized sub-agents (BA, UI/UX, Dev, Tester, DevOps) with dedicated contexts
+5. **Build** — Agents collaborate autonomously:
+   - BA writes requirements (PRD) → shared with all agents
+   - UI/UX, Dev, and Tester work in parallel
+   - Dev-Tester auto-fix loop runs until all tests pass
+6. **Deploy** — DevOps agent deploys the finished product (live URL + GitHub repo)
+7. **Iterate** — Request changes; the team re-engages and rebuilds
 
 ---
 
@@ -122,14 +167,17 @@ Local Process Sandbox             ← Isolated Build Environment
 
 | Feature | Description |
 |---------|-------------|
-| **Build Engine** | Build web, mobile, backend, CLI tools, scripts — anything you can describe |
+| **Virtual Software Company** | A full AI team (PM, BA, UI/UX, Dev, Tester, DevOps) that builds your software autonomously |
+| **Hierarchical Multi-Agent** | Orchestrator (CEO) spawns, delegates, and supervises specialized sub-agents with cross-agent collaboration |
+| **Auto Dev-Test Loops** | Developer and Tester agents iterate automatically until all tests pass — no human intervention |
+| **Full SDLC Automation** | Requirements → Design → Code → Test → Deploy, entirely automated |
+| **Build Anything** | Web, mobile, backend, CLI tools, scripts, games — anything you can describe |
 | **Multi-Channel** | Telegram, Discord, Slack, Matrix, or CLI — use what you prefer |
 | **Zero-dependency Sandbox** | Isolated local process sandbox — no API key, no Docker daemon required |
-| **Model Advisor** | Recommends optimal models per task (Sonnet 4.5 for code, Kimi for long context, etc.) |
-| **Session Persistence** | SQLite snapshots save project state; resume builds across sessions |
+| **Ultra-low Cost** | Replace entire dev teams with API token costs |
 | **Multi-Provider LLM** | OpenAI, Anthropic, OpenRouter, DeepSeek, Gemini, and more |
 | **Secure by Default** | OAuth tokens stored in SQLite only; never in logs or messages |
-| **Connectors (GitHub)** | Create/comment on issues & PRs, code reviews, push code — all via chat |
+| **GitHub Connector** | Create/comment on issues & PRs, code reviews, push code — all via chat |
 
 ---
 
@@ -143,7 +191,8 @@ Local Process Sandbox             ← Isolated Build Environment
 | **Open Source** | ✅ Yes | ❌ No | ❌ No | ❌ No | ✅ Yes |
 | **Self-Hostable** | ✅ Yes | ❌ No | ❌ No | ❌ No | ✅ Yes |
 | **Runtime** | Rust (<10MB) | Cloud | Cloud | Cloud | Node.js |
-| **Connectors (GitHub)** | ✅ Full (repos, issues, PRs, comments, inline review, push) | ❌ No | ❌ No | ❌ No | Manual |
+| **Multi-Agent Team** | ✅ Full SDLC (BA, Dev, Tester, DevOps) | ❌ Single agent | ❌ Single agent | ❌ Single agent | ❌ Single agent |
+| **GitHub Connector** | ✅ Full (repos, issues, PRs, comments, inline review, push) | ❌ No | ❌ No | ❌ No | Manual |
 
 ---
 
@@ -174,4 +223,4 @@ You may choose either license.
 
 ---
 
-**ZeroBuild** — Describe it. Confirm it. Build it. Push it. 🛠️
+**ZeroBuild** — Your AI Software Company. Idea in, product out. 🏭

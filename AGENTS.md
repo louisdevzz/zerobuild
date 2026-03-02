@@ -1,6 +1,6 @@
-# AGENTS.md — ZeroBuild Agent Engineering Protocol
+# AGENTS.md — ZeroBuild: Autonomous Software Factory Protocol
 
-> **Forked from ZeroBuild.** ZeroBuild is a customization of the ZeroBuild agent runtime that builds projects of any type via any configured channel using an isolated local process sandbox. This protocol extends ZeroBuild's base AGENTS.md with ZeroBuild-specific rules.
+> **ZeroBuild is a Virtual Software Company powered entirely by AI.** Through a hierarchical multi-agent system, it automates the entire software development lifecycle — from idea to production-ready code. Built on [ZeroClaw](https://github.com/zeroclaw-labs/zeroclaw), the Rust-first autonomous agent runtime.
 
 This file defines the default working protocol for coding agents in this repository.
 Scope: entire repository (Rust runtime only — Node.js backend removed).
@@ -9,11 +9,14 @@ Scope: entire repository (Rust runtime only — Node.js backend removed).
 
 ## 1) Project Snapshot (Read First)
 
-**ZeroBuild** is a single-tier AI agent system built on ZeroBuild:
+**ZeroBuild** is a hierarchical multi-agent system (Autonomous Software Factory) built on ZeroClaw:
 
-- **ZeroBuild Agent** — ZeroBuild Rust runtime. Handles user conversations over any configured channel (Telegram, Discord, Slack, and others), proposes plans, writes code into an isolated local process sandbox, and pushes to GitHub.
+- **Orchestrator (CEO/Master Agent)** — Receives user ideas, analyzes feasibility, creates project plans, spawns specialized sub-agents, and coordinates the entire SDLC.
+- **Specialized Sub-Agents** — BA (requirements), UI/UX (design), Developer (implementation), Tester (validation), DevOps (deployment) — each with dedicated contexts, permissions, and tools.
+- **Single-agent mode** (default) — One agent handles conversation, planning, coding, and deployment for simpler tasks.
+- **Factory mode** (opt-in) — The Orchestrator spawns the full AI team for complex, multi-phase projects.
 
-ZeroBuild (the upstream base) is a Rust-first autonomous agent runtime optimized for performance, efficiency, stability, extensibility, sustainability, and security. ZeroBuild keeps all of that and adds a project-building product layer on top.
+ZeroClaw (the upstream base) is a Rust-first autonomous agent runtime optimized for performance, efficiency, stability, extensibility, sustainability, and security. ZeroBuild adds the multi-agent factory and project-building product layer on top.
 
 **Project types the agent can build (non-exhaustive):**
 - Web apps / websites (Next.js, React, etc.) — have a dev server → get a preview URL
@@ -41,45 +44,61 @@ ZeroBuild (the upstream base) is a Rust-first autonomous agent runtime optimized
 - `src/tools/github_ops.rs` — GitHub ops tools (issue, PR, review, connect)
 - `src/gateway/oauth.rs` — GitHub OAuth flow (`/auth/github`, `/auth/github/callback`)
 - `src/store/` — SQLite persistence (sandbox session, project snapshot, GitHub token)
+- `src/factory/` — multi-agent factory (roles, blackboard, workflow, orchestrator tool)
 
 ---
 
 ## 2) Architecture and Key Decisions
 
-### Single-tier agent design
+### Hierarchical multi-agent architecture
 
 ```
-User (any configured channel: Telegram, Discord, Slack, ...)
+User provides idea (any channel: Telegram, Discord, Slack, CLI)
     │
     ▼
-ZeroBuild Runtime (Rust)   ← ZeroBuild Agent
-  • Runs the conversation loop
-  • Proposes plans, waits for user confirmation
-  • Calls sandbox_* tools directly (no external API needed)
-  • Calls github_* tools → GitHub REST API directly
-  • Calls request_deploy → GitHub git tree/commit/ref API
+┌───────────────────────────────────────────────┐
+│  Orchestrator (CEO / Master Agent)            │
+│  • Receives idea, analyzes feasibility        │
+│  • Creates project plan, spawns sub-agents    │
+│  • Coordinates phased execution               │
+│  • Reports progress to user                   │
+│                                               │
+│  ┌─────────────────────────────────────────┐  │
+│  │  Phase 1: BA Agent → PRD                │  │
+│  │  Phase 2: UI/UX + Dev + Tester (parallel)│ │
+│  │  Phase 3: Dev ◄─► Tester (fix loop)     │  │
+│  │  Phase 4: DevOps → Deploy               │  │
+│  └─────────────────────────────────────────┘  │
+│                                               │
+│  Each sub-agent has:                          │
+│  • Dedicated system prompt & context          │
+│  • Scoped tool permissions                    │
+│  • Configurable provider/model                │
+└───────────────────────────────────────────────┘
     │
     ▼
 Local Process Sandbox      ← Isolated build sandbox
   • $TMPDIR/zerobuild-sandbox-{uuid}/
   • Any toolchain available from host PATH (node, python, cargo, etc.)
-  • scaffold → build → run
+  • All agents share the same sandbox filesystem
   • Web projects: HTTP server on a port → preview URL available
   • Non-web projects: no preview URL; output via stdout/artifacts
 ```
 
-### Why single-tier
+### Why this architecture
 
-1. **Simplicity**: No external sandbox service. The sandbox is a local process with a restricted environment. Fewer moving parts = easier to debug.
-2. **Security boundary preserved**: OAuth tokens stored in SQLite only, never in logs or agent messages.
-3. **Re-hydration pattern**: SQLite snapshots (`src/store/snapshot.rs`) allow future sessions to restore previous builds.
-4. **Direct GitHub push**: `request_deploy` uses git blobs/tree/commit/ref API — no intermediate service needed.
+1. **Virtual Software Company**: Mirrors a real dev team — PM delegates to specialists, each owns their domain.
+2. **Autonomous SDLC**: The full lifecycle (requirements → design → code → test → deploy) runs without human intervention at technical steps.
+3. **Self-healing loops**: Dev-Tester ping-pong with hard iteration cap prevents infinite loops while ensuring quality.
+4. **Security boundary preserved**: OAuth tokens stored in SQLite only, never in logs or agent messages. Sandbox uses `env_clear()`.
+5. **Re-hydration pattern**: SQLite snapshots allow session restoration across builds.
+6. **Direct GitHub push**: `request_deploy` uses git blobs/tree/commit/ref API — no intermediate service needed.
 
 ### Identity boundary
 
-- **User-facing name**: `ZeroBuild` — users interact with ZeroBuild via their channel of choice
-- **Runtime engine**: ZeroBuild — internal name, never shown to users
-- **`IDENTITY.md`**: loaded by the ZeroBuild Agent to enforce this boundary
+- **User-facing name**: `ZeroBuild` — users interact with ZeroBuild as their "AI software company"
+- **Runtime engine**: ZeroClaw — internal name, never shown to users
+- **`IDENTITY.md`**: loaded by the Orchestrator to enforce this boundary
 
 ---
 
@@ -466,15 +485,78 @@ Use this workflow when the user asks to fix a bug in an existing GitHub reposito
 
 ---
 
-## 6) Risk Tiers by Path
+## 6) Multi-Agent Factory Workflow
+
+ZeroBuild supports an opt-in **factory mode** where the Orchestrator spawns specialized AI agents that collaborate through phased execution. See [ARCHITECTURE.md](ARCHITECTURE.md) for the full design.
+
+### 6.1 Agent Roles and Responsibilities
+
+| Role | Module | Responsibility |
+|------|--------|----------------|
+| **Orchestrator** | `src/factory/orchestrator_tool.rs` | Workflow coordination, phase management, user communication |
+| **Business Analyst** | `src/factory/roles.rs` | Requirements analysis, PRD generation |
+| **UI/UX Designer** | `src/factory/roles.rs` | Design specifications, component structure |
+| **Developer** | `src/factory/roles.rs` | Code generation using sandbox tools |
+| **Tester** | `src/factory/roles.rs` | Test case generation and execution |
+| **DevOps** | `src/factory/roles.rs` | Deployment configuration, GitHub push |
+
+### 6.2 Workflow Phases
+
+1. **Analysis** (sequential) — BA agent produces PRD from user idea
+2. **Parallel Build** — UI/UX + Developer + Tester run concurrently via `tokio::join!`
+3. **Integration Loop** — Developer-Tester ping-pong until tests pass (max iterations configurable, default 5)
+4. **Deployment** — DevOps agent deploys when tests pass
+
+### 6.3 Blackboard Protocol
+
+Agents communicate through a shared `Blackboard` (typed `Arc<Mutex<HashMap>>`) with versioned artifact entries:
+
+| Artifact | Producer | Consumers |
+|----------|----------|-----------|
+| `Prd` | Business Analyst | UI/UX, Developer, Tester |
+| `DesignSpec` | UI/UX Designer | Developer |
+| `SourceCode` | Developer | Tester, DevOps |
+| `TestCases` | Tester | Developer (integration loop) |
+| `TestResults` | Tester | Orchestrator (phase control) |
+| `DeployConfig` | DevOps | Orchestrator (final result) |
+
+### 6.4 Factory Configuration
+
+```toml
+[factory]
+enabled = false                    # Opt-in, default disabled
+max_ping_pong_iterations = 5       # Dev-Tester loop cap
+
+# Per-role provider/model overrides (optional)
+[factory.provider_overrides.developer]
+provider = "anthropic"
+model = "claude-sonnet-4-6"
+temperature = 0.3
+
+[factory.provider_overrides.tester]
+provider = "openrouter"
+model = "anthropic/claude-sonnet-4-6"
+```
+
+When `factory.enabled = true`, the `factory_build` tool is registered and available to the agent.
+
+### 6.5 Extension Points
+
+- New roles: add variant to `AgentRole` enum in `src/factory/roles.rs`, define system prompt
+- New artifacts: add variant to `Artifact` enum in `src/factory/blackboard.rs`
+- Phase customization: modify `FactoryWorkflow::run()` in `src/factory/workflow.rs`
+
+---
+
+## 7) Risk Tiers by Path
 
 - **Low risk**: docs, test changes
-- **Medium risk**: `src/tools/sandbox/`, `src/store/`, most `src/**` Rust changes
+- **Medium risk**: `src/tools/sandbox/`, `src/store/`, `src/factory/`, most `src/**` Rust changes
 - **High risk**: `src/security/**`, `src/runtime/**`, `src/gateway/**`, `src/tools/deploy.rs`, `src/tools/github_ops.rs`, `src/gateway/oauth.rs`, `.github/workflows/**`, access-control boundaries
 
 ---
 
-## 7) Agent Workflow (Required)
+## 8) Agent Workflow (Required)
 
 1. **Read before write** — inspect existing module and adjacent tests before editing.
 2. **Define scope boundary** — one concern per PR; avoid mixed feature+refactor+infra patches.
@@ -483,19 +565,19 @@ Use this workflow when the user asks to fix a bug in an existing GitHub reposito
 5. **Document impact** — update docs/PR notes for behavior, risk, side effects, rollback.
 6. **Respect queue hygiene** — declare `Depends on #...` for stacked PRs.
 
-### 7.1 Branch / Commit / PR Flow (Required)
+### 8.1 Branch / Commit / PR Flow (Required)
 
 - Create and work from a non-`main` branch.
 - Commit changes to that branch with clear, scoped commit messages.
 - Open a PR to `main`; do not push directly to `main`.
 - Wait for required checks and review outcomes before merging.
 
-### 7.2 Code Naming Contract (Required)
+### 8.2 Code Naming Contract (Required)
 
 - Rust: modules/files `snake_case`, types/traits `PascalCase`, functions/variables `snake_case`, constants `SCREAMING_SNAKE_CASE`.
 - Test identifiers: use project-scoped neutral labels (`zerobuild_user`, `zerobuild_node`).
 
-### 7.3 Architecture Boundary Contract (Required)
+### 8.3 Architecture Boundary Contract (Required)
 
 - Sandbox runs as a local process with `env_clear()` — no host credentials leak into builds.
 - OAuth tokens must never appear in logs, channel messages, or agent tool results.
@@ -503,7 +585,7 @@ Use this workflow when the user asks to fix a bug in an existing GitHub reposito
 
 ---
 
-## 8) Validation Matrix
+## 9) Validation Matrix
 
 ### Rust (ZeroBuild Agent)
 
@@ -515,7 +597,7 @@ cargo test
 
 ---
 
-## 9) Collaboration and PR Discipline
+## 10) Collaboration and PR Discipline
 
 - Follow `.github/pull_request_template.md` fully.
 - Keep PR descriptions concrete: problem, change, non-goals, risk, rollback.
@@ -523,7 +605,7 @@ cargo test
 - Prefer small PRs when possible.
 - Agent-assisted PRs are welcome, but contributors remain accountable for understanding what their code will do.
 
-### 9.1 Privacy/Sensitive Data (Required)
+### 10.1 Privacy/Sensitive Data (Required)
 
 - Never commit API keys, bot tokens, OAuth secrets, or user IDs.
 - Never log user messages, channel user IDs, prompt content, or OAuth tokens in production.
@@ -531,7 +613,7 @@ cargo test
 
 ---
 
-## 10) Anti-Patterns (Do Not)
+## 11) Anti-Patterns (Do Not)
 
 - Do not add heavy dependencies for minor convenience.
 - Do not silently weaken security policy or access constraints.
@@ -549,7 +631,7 @@ cargo test
 
 ---
 
-## 11) Handoff Template (Agent → Agent / Maintainer)
+## 12) Handoff Template (Agent → Agent / Maintainer)
 
 When handing off work, include:
 
@@ -916,7 +998,7 @@ User: "reply to comment #123456: 'Fixed in latest commit'"
 
 ---
 
-## 12) Vibe Coding Guardrails
+## 13) Vibe Coding Guardrails
 
 When working in fast iterative mode:
 

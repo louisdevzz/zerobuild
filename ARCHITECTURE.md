@@ -307,7 +307,284 @@ Agents publish artifacts via `publish_artifact()` and read them via `read_artifa
 
 ---
 
-## Implementation Strategy
+## Agent Workspace Isolation (Future)
+
+### Current Limitation
+Currently all agents share the same sandbox (`/tmp/zerobuild-sandbox-{uuid}/`), which can lead to:
+- Accidental file overwrites between agents
+- Difficulty debugging which agent created which file
+- No per-agent rollback capability
+- Shared identity and skills across all agents
+
+### Proposed Workspace Architecture
+
+```
+~/.zerobuild/
+├── config.toml                    # Global config
+├── workspaces/                    # Each agent has isolated workspace
+│   ├── orchestrator-{uuid}/
+│   │   ├── .agent/
+│   │   │   ├── identity.md        # Orchestrator personality
+│   │   │   ├── skills/            # Per-agent skills
+│   │   │   ├── memory/            # Conversation history
+│   │   │   └── state.json         # Agent state
+│   │   └── projects/
+│   ├── ba-{uuid}/
+│   │   ├── .agent/
+│   │   │   ├── identity.md        # BA-specific identity
+│   │   │   └── skills/
+│   │   │       ├── requirements-analysis.md
+│   │   │       └── prd-writing.md
+│   │   └── sandbox/               # Isolated work area
+│   ├── dev-{uuid}/
+│   │   ├── .agent/
+│   │   └── sandbox/
+│   │       └── project/           # Source code isolated
+│   └── [other agents...]
+│
+└── shared/
+    ├── blackboard/               # Shared artifacts
+    └── protocols/                # Message type definitions
+```
+
+**Benefits:**
+- ✅ True agent isolation - one agent cannot affect another's files
+- ✅ Per-agent identity, skills, and memory
+- ✅ Independent rollback per agent
+- ✅ Better debugging and audit trails
+
+---
+
+## Inter-Agent Communication Protocol (IACP)
+
+### Generic Message Protocol
+
+Instead of hardcoded Rust enums, the new protocol uses generic message envelopes with dynamic type registration:
+
+```rust
+pub struct AgentMessage {
+    pub header: MessageHeader {
+        pub message_id: Uuid,
+        pub message_type: String,  // Dynamic: "code_review", "request_clarification", etc.
+        pub from: AgentId,
+        pub to: Option<AgentId>,
+        pub intent: MessageIntent,
+    },
+    pub content: MessageContent {
+        pub schema_version: String,
+        pub content_type: String,
+        pub payload: serde_json::Value,  // Validated against JSON Schema
+    }
+}
+```
+
+### Message Type Registry
+
+Message types are defined in YAML and loaded dynamically:
+
+```yaml
+# ~/.zerobuild/protocols/messages/code_review.yaml
+message_type: "code_review"
+schema:
+  type: object
+  required: [file_path, code_snippet]
+  properties:
+    file_path: { type: string }
+    code_snippet: { type: string }
+
+handlers:
+  - role: tester
+    capability: quality_assurance
+  - role: security_specialist  # Easy to add new roles!
+    capability: security_audit
+```
+
+**Benefits:**
+- ✅ Add new message types without recompiling
+- ✅ Capability-based routing (not hardcoded role pairs)
+- ✅ JSON Schema validation
+- ✅ Cross-language support
+
+---
+
+## Heartbeat Protocol & Status Monitoring
+
+### Problem
+Without heartbeat, the Orchestrator cannot:
+- Detect crashed or hung agents
+- Know what each agent is currently doing
+- Report progress to users
+- Handle blocked dependencies
+
+### Solution
+
+```rust
+pub struct HeartbeatMessage {
+    pub agent_id: AgentId,
+    pub status: AgentStatus,
+    pub current_task: Option<TaskInfo> {
+        pub task_type: String,
+        pub progress_percent: u8,
+        pub blocked_on: Option<BlockedReason>,
+    },
+    pub timestamp: DateTime<Utc>,
+}
+
+pub enum BlockedReason {
+    WaitingForDependency { agent_id: AgentId, artifact: String },
+    WaitingForUserInput { question: String },
+    ResourceUnavailable { resource: String },
+}
+```
+
+### Heartbeat Flow
+
+```
+Every 5 seconds:
+
+Agent → Heartbeat → Orchestrator
+       { status: Busy, 
+         task: { progress: 65%, 
+                 blocked_on: WaitingForDesigner } }
+                    ↓
+         Orchestrator notifies user:
+         "⏳ Developer waiting for UI/UX design 
+            (estimated: 10 min left)"
+```
+
+### User Notifications
+
+The Orchestrator uses heartbeat data to:
+- Report real-time progress: "Designer is 65% done with homepage"
+- Notify about blockages: "Developer waiting for design spec"
+- Alert on failures: "Tester found 3 bugs, Developer fixing..."
+- ETA updates: "Estimated completion in 15 minutes"
+
+---
+
+## Busy State Handling & Message Queue
+
+### Problem
+When Agent A sends a message to busy Agent B:
+- Message may timeout or get lost
+- Agent A doesn't know why no response
+- No mechanism to queue or retry
+
+### Solution: Priority Queue with Smart Routing
+
+```rust
+pub struct AgentMessageQueue {
+    pub high_priority: VecDeque<QueuedMessage>,   // Urgent commands
+    pub normal_priority: VecDeque<QueuedMessage>, // Standard requests
+    pub low_priority: VecDeque<QueuedMessage>,    // Notifications
+    pub waiting: Vec<WaitingMessage>,             // Conditional delivery
+}
+
+pub enum BusyStrategy {
+    Wait { timeout: Duration },
+    Queue { priority: Priority },
+    Alternative { fallback_agents: Vec<AgentId> },
+    FailFast,
+}
+```
+
+### Usage Example
+
+```rust
+// Developer needs design spec from UI/UX
+let result = bus.send_with_busy_handling(
+    to: uiux_designer,
+    message: design_request,
+    strategy: BusyStrategy::Alternative {
+        fallback_agents: vec![uiux_designer_2, uiux_lead]
+    }
+).await?;
+
+// Result could be:
+// - Delivered (designer was free)
+// - DeliveredToAlternative(uiux_designer_2)
+// - Queued { position: 2 }
+// - Error (all designers busy)
+```
+
+---
+
+## Agent Pool Management
+
+### Warm/Cold Agent Pool
+
+```rust
+pub struct AgentPool {
+    pub agents: DashMap<AgentId, AgentInstance>,
+    pub warm_pool: Vec<AgentId>,     // Ready to use
+    pub cold_pool: Vec<AgentId>,     // Initialized but not running
+}
+
+pub enum AgentState {
+    Cold,       // Workspace exists, agent not running
+    Warming,    // Loading skills, connecting to bus
+    Warm,       // Ready to accept tasks
+    Busy { task_id: Uuid, since: Instant },
+    Paused { reason: String },
+    Error { error: String },
+    ShuttingDown,
+    Terminated,
+}
+```
+
+### Pool Operations
+
+```rust
+impl AgentPool {
+    // Get or create warm agent
+    pub async fn acquire(&self, role: AgentRole) -> Result<AgentId> {
+        // 1. Try to find warm agent
+        // 2. Try to warm up cold agent
+        // 3. Spawn new agent if needed
+    }
+    
+    // Release back to pool
+    pub async fn release(&self, agent_id: &AgentId) {
+        // Clear task memory, return to warm pool
+    }
+    
+    // Auto-scale based on demand
+    pub async fn auto_scale(&self) {
+        // Monitor queue lengths, spawn additional agents
+    }
+}
+```
+
+### Benefits
+
+- ✅ **Reduced latency** - Warm agents start immediately (no 5-10s init)
+- ✅ **Auto-scaling** - Spawn more agents during high load
+- ✅ **Resource efficiency** - Cold agents use minimal resources
+- ✅ **Health monitoring** - Automatic recovery from failures
+
+---
+
+## Design Decisions (Updated)
+
+1. **Enabled by default** — `factory.enabled = true`. The `factory_build` tool is always available; the agent autonomously decides when to use it based on task complexity.
+
+2. **Phase 0: User Confirmation** — Orchestrator must create detailed execution plan with timeline/cost estimates and obtain user approval before spawning agents. This provides transparency and control.
+
+3. **Workspace Isolation** (Future) — Each agent gets isolated workspace with dedicated identity, skills, and memory. Enables per-agent rollback and better debugging.
+
+4. **Generic Communication Protocol** — Dynamic message types via YAML + JSON Schema instead of hardcoded enums. Enables adding new agent types without modifying core code.
+
+5. **Heartbeat Protocol** — Agents send heartbeats every 5 seconds with status, progress, and blockages. Enables real-time user notifications and failure detection.
+
+6. **Busy State Handling** — Priority message queues with smart routing (wait, queue, alternative agents). Prevents message loss when agents are busy.
+
+7. **Agent Pool Management** — Warm/cold pool with auto-scaling. Reduces latency by keeping agents ready and scales based on demand.
+
+8. **Hard iteration cap** — Prevents infinite dev-test loops. Configurable, default 5.
+
+9. **No new traits** — Factory uses existing `Tool`, `Provider`, and coordination traits.
+
+10. **Backward compatible** — New features are opt-in via feature flags; existing single-agent mode unaffected.
 
 ### Reuse Existing Primitives
 
@@ -321,7 +598,7 @@ The factory module builds on existing infrastructure rather than rewriting:
 | `SharedContextEntry` + `ContextPatch` | Artifact storage with versioned writes |
 | `run_tool_call_loop` | Agent execution engine for each role |
 
-### Module Structure
+### Module Structure (Current)
 
 ```
 src/factory/
@@ -330,6 +607,33 @@ src/factory/
 ├── blackboard.rs           # Blackboard struct wrapping InMemoryMessageBus
 ├── workflow.rs             # WorkflowPhase state machine, FactoryWorkflow
 └── orchestrator_tool.rs    # FactoryOrchestratorTool (Tool trait impl)
+```
+
+### Module Structure (Future - Workspace Isolation)
+
+```
+src/factory/
+├── mod.rs
+├── roles.rs
+├── blackboard.rs
+├── workflow.rs
+├── orchestrator_tool.rs
+├── workspace/              # NEW: Per-agent workspace management
+│   ├── mod.rs
+│   ├── manager.rs          # Workspace lifecycle
+│   └── isolation.rs        # Sandboxing per agent
+├── protocol/               # NEW: Inter-agent communication
+│   ├── mod.rs
+│   ├── message.rs          # Generic message types
+│   ├── registry.rs         # Dynamic type registry
+│   ├── bus.rs              # Message routing
+│   ├── heartbeat.rs        # Health monitoring
+│   └── queue.rs            # Busy state handling
+└── pool/                   # NEW: Agent pool management
+    ├── mod.rs
+    ├── pool.rs             # AgentPool implementation
+    ├── lifecycle.rs        # Warm/cold state transitions
+    └── health.rs           # Health checking
 ```
 
 ### Configuration
@@ -359,24 +663,54 @@ model = "anthropic/claude-sonnet-4-6"
 
 ## Development Roadmap
 
-### Phase A: Foundation (Current)
-- Factory module structure (`src/factory/`)
-- Role definitions with system prompts
-- Blackboard on top of `InMemoryMessageBus`
-- Workflow state machine
-- `factory_build` tool registration
+### Phase A: Foundation (Current ✓)
+- [x] Factory module structure (`src/factory/`)
+- [x] Role definitions with system prompts
+- [x] Blackboard on top of `InMemoryMessageBus`
+- [x] Workflow state machine
+- [x] `factory_build` tool registration
+- [x] Phase 0: Planning with user confirmation
 
-### Phase B: Enhancement (Future)
-- Agent memory sharing across phases
-- Streaming progress updates to user
-- Role-specific tool allowlists refinement
-- Parallel agent health monitoring
+### Phase B: Workspace Isolation (Next)
+- [ ] Per-agent workspace structure (`~/.zerobuild/workspaces/`)
+- [ ] Move sandbox from `/tmp` to agent workspace
+- [ ] Per-agent `identity.md` and `skills/` folder
+- [ ] Workspace lifecycle management
+- [ ] Migration tool from old structure
 
-### Phase C: Advanced (Future)
-- Dynamic agent spawning based on project complexity
-- Cross-project learning from previous builds
-- Custom role definitions via config
-- Agent performance metrics and optimization
+### Phase C: Communication Protocol (Next)
+- [ ] Generic `AgentMessage` envelope
+- [ ] Dynamic message type registry
+- [ ] Message bus with routing
+- [ ] Request/response pattern
+- [ ] Event broadcasting
+- [ ] YAML-based message type definitions
+
+### Phase D: Monitoring & Reliability (Next)
+- [ ] Heartbeat protocol (5-second intervals)
+- [ ] Real-time progress reporting
+- [ ] User notification system
+- [ ] Agent health monitoring
+- [ ] Automatic failure recovery
+
+### Phase E: Queue Management (Next)
+- [ ] Priority message queues
+- [ ] Busy state handling
+- [ ] Smart routing (alternative agents)
+- [ ] Message persistence and retry
+
+### Phase F: Pool Management (Next)
+- [ ] Warm/cold agent pool
+- [ ] Auto-scaling based on demand
+- [ ] Pool lifecycle management
+- [ ] Resource optimization
+
+### Phase G: Advanced Features (Future)
+- [ ] Cross-project learning from previous builds
+- [ ] Custom role definitions via config
+- [ ] Agent performance metrics and optimization
+- [ ] Distributed agent execution
+- [ ] Plugin system for third-party agents
 
 ---
 

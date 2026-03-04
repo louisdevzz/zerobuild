@@ -77,7 +77,7 @@ Notes:
    - `flake-probe` (single-retry telemetry; optional block via `CI_BLOCK_ON_FLAKE_SUSPECTED`)
    - `docs-quality`
 7. If `.github/workflows/**` changed, `workflow-owner-approval` must pass.
-8. If root license files (`LICENSE-APACHE`, `LICENSE-MIT`) changed, `license-file-owner-guard` allows only PR author `willsarg`.
+8. If root license files (`LICENSE-APACHE`, `LICENSE-MIT`) changed, `license-file-owner-guard` allows only PR author `louisdevzz`.
 9. `lint-feedback` posts actionable comment if lint/docs gates fail.
 10. `CI Required Gate` aggregates results to final pass/fail.
 11. Maintainer merges PR once checks and review policy are satisfied.

@@ -121,7 +121,7 @@ jobs:
                     --release-ref "${{ steps.vars.outputs.release_ref }}" \
                     --release-tag "${{ steps.vars.outputs.release_tag }}" \
                     --publish-release "${{ steps.vars.outputs.publish_release }}" \
-                    --authorized-actors "${{ vars.RELEASE_AUTHORIZED_ACTORS || 'willsarg,theonlyhennygod,chumyin' }}" \
+                    --authorized-actors "${{ vars.RELEASE_AUTHORIZED_ACTORS || 'louisdevzz' }}" \
                     --authorized-tagger-emails "${{ vars.RELEASE_AUTHORIZED_TAGGER_EMAILS || '' }}" \
                     --require-annotated-tag true \
                     --output-json artifacts/release-trigger-guard.json \

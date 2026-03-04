@@ -25,7 +25,9 @@ const STREAM_CHUNK_MIN_CHARS: usize = 80;
 
 /// Default maximum agentic tool-use iterations per user message to prevent runaway loops.
 /// Used as a safe fallback when `max_tool_iterations` is unset or configured as zero.
-const DEFAULT_MAX_TOOL_ITERATIONS: usize = 10;
+/// Increased from 10 to 25 to accommodate complex multi-step tasks while maintaining
+/// safety bounds. See issue #26 for context.
+const DEFAULT_MAX_TOOL_ITERATIONS: usize = 25;
 
 /// Minimum user-message length (in chars) for auto-save to memory.
 /// Matches the channel-side constant in `channels/mod.rs`.
@@ -2739,6 +2741,23 @@ pub(crate) fn build_tool_instructions(tools_registry: &[Box<dyn Tool>]) -> Strin
     instructions
 }
 
+/// Build the tool budget awareness section for the system prompt.
+/// This helps the agent plan efficiently based on the maximum allowed iterations.
+pub(crate) fn build_tool_budget_prompt(max_iterations: usize) -> String {
+    // Calculate dynamic tier ranges based on max_iterations
+    let simple_min = std::cmp::max(1, (max_iterations as f32 * 0.12).round() as usize);
+    let simple_max = std::cmp::max(2, (max_iterations as f32 * 0.2).round() as usize);
+    let medium_min = std::cmp::max(3, (max_iterations as f32 * 0.32).round() as usize);
+    let medium_max = std::cmp::max(5, (max_iterations as f32 * 0.48).round() as usize);
+    let complex_min = std::cmp::max(8, (max_iterations as f32 * 0.6).round() as usize);
+    let complex_max = std::cmp::max(12, (max_iterations as f32 * 0.8).round() as usize);
+
+    format!(
+        "\n## Tool Use Budget\n\nYou have a maximum of {} tool-use iterations to complete this task. Plan efficiently:\n\n- **Complex tasks** (build projects, multiple files): ~{}-{} iterations\n- **Medium tasks** (modify existing code): ~{}-{} iterations\n- **Simple tasks** (read files, explain): ~{}-{} iterations\n\nIf approaching the limit, prioritize:\n1. Complete the critical path first (create → build → verify)\n2. Skip verification steps if already confident\n3. Provide partial results with explanation rather than failing\n\n",
+        max_iterations, complex_min, complex_max, medium_min, medium_max, simple_min, simple_max
+    )
+}
+
 // ── CLI Entrypoint ───────────────────────────────────────────────────────
 // Wires up all subsystems (observer, runtime, security, memory, tools,
 // provider, hardware RAG, peripherals) and enters either single-shot or
@@ -3018,6 +3037,14 @@ pub async fn run(
     if !native_tools {
         system_prompt.push_str(&build_tool_instructions(&tools_registry));
     }
+
+    // Add iteration budget awareness to system prompt
+    let max_iterations = if config.agent.max_tool_iterations == 0 {
+        DEFAULT_MAX_TOOL_ITERATIONS
+    } else {
+        config.agent.max_tool_iterations
+    };
+    system_prompt.push_str(&build_tool_budget_prompt(max_iterations));
 
     // ── Approval manager (supervised mode) ───────────────────────
     let approval_manager = if interactive {
@@ -3432,6 +3459,14 @@ pub async fn process_message(config: Config, message: &str) -> Result<String> {
     if !native_tools {
         system_prompt.push_str(&build_tool_instructions(&tools_registry));
     }
+
+    // Add iteration budget awareness to system prompt
+    let max_iterations = if config.agent.max_tool_iterations == 0 {
+        DEFAULT_MAX_TOOL_ITERATIONS
+    } else {
+        config.agent.max_tool_iterations
+    };
+    system_prompt.push_str(&build_tool_budget_prompt(max_iterations));
 
     let mem_context = build_context(mem.as_ref(), message, config.memory.min_relevance_score).await;
     let rag_limit = if config.agent.compact_context { 2 } else { 5 };

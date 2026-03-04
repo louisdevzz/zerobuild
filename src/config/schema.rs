@@ -542,8 +542,21 @@ pub struct AgentConfig {
     /// When true: bootstrap_max_chars=6000, rag_chunk_limit=2. Use for 13B or smaller models.
     #[serde(default)]
     pub compact_context: bool,
-    /// Maximum tool-call loop turns per user message. Default: `10`.
-    /// Setting to `0` falls back to the safe default of `10`.
+    /// Maximum tool-call loop turns per user message. Default: `25`.
+    /// Setting to `0` falls back to the safe default of `25`.
+    ///
+    /// ## Compatibility Note
+    /// This change only alters the default value. Existing configurations with
+    /// explicit `max_tool_iterations` values are respected and will continue to work.
+    ///
+    /// ## Rollback / Migration
+    /// To restore the previous behavior (limit of 10 iterations), explicitly set:
+    /// ```toml
+    /// [agent]
+    /// max_tool_iterations = 10
+    /// ```
+    ///
+    /// See issue #26 for context on why the default was increased.
     #[serde(default = "default_agent_max_tool_iterations")]
     pub max_tool_iterations: usize,
     /// Maximum conversation history messages retained per session. Default: `50`.
@@ -558,7 +571,7 @@ pub struct AgentConfig {
 }
 
 fn default_agent_max_tool_iterations() -> usize {
-    10
+    25
 }
 
 fn default_agent_max_history_messages() -> usize {
@@ -5028,7 +5041,7 @@ reasoning_enabled = false
     async fn agent_config_defaults() {
         let cfg = AgentConfig::default();
         assert!(!cfg.compact_context);
-        assert_eq!(cfg.max_tool_iterations, 10);
+        assert_eq!(cfg.max_tool_iterations, 25);
         assert_eq!(cfg.max_history_messages, 50);
         assert!(!cfg.parallel_tools);
         assert_eq!(cfg.tool_dispatcher, "auto");

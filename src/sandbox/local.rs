@@ -22,7 +22,9 @@ use super::{CommandOutput, PackageManager, SandboxClient};
 use anyhow::Context as _;
 use async_trait::async_trait;
 use parking_lot::Mutex;
+
 use std::collections::HashMap;
+use std::ffi::OsString;
 use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 use uuid::Uuid;
@@ -514,6 +516,11 @@ fn collect_files_recursive(base: &Path, dir: &Path, out: &mut HashMap<String, St
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex;
+
+    // Mutex to serialize tests that mutate ZEROBUILD_SANDBOX_PATH
+    // Use std::sync::Mutex for test synchronization (parking_lot::Mutex doesn't work well with test isolation)
+    static ENV_MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
     #[test]
     fn safe_join_normal_path() {
@@ -598,6 +605,9 @@ mod tests {
 
     #[tokio::test]
     async fn write_and_read_file() {
+        // Serialize with env var tests to avoid interference
+        let _guard = ENV_MUTEX.lock().unwrap();
+
         let client = LocalProcessSandboxClient::new();
         client.create_sandbox(false, "", 30_000).await.unwrap();
         client
@@ -661,6 +671,24 @@ mod tests {
 
     #[tokio::test]
     async fn sandbox_path_uses_custom_absolute_path_from_env() {
+        // Serialize tests that mutate environment variables
+        let _guard = ENV_MUTEX.lock().unwrap();
+
+        // Save original env state
+        let original_env = std::env::var_os("ZEROBUILD_SANDBOX_PATH");
+
+        // Cleanup guard - ensures env is restored even on panic
+        struct EnvGuard(Option<OsString>);
+        impl Drop for EnvGuard {
+            fn drop(&mut self) {
+                match &self.0 {
+                    Some(val) => std::env::set_var("ZEROBUILD_SANDBOX_PATH", val),
+                    None => std::env::remove_var("ZEROBUILD_SANDBOX_PATH"),
+                }
+            }
+        }
+        let _env_guard = EnvGuard(original_env);
+
         // Create a temporary directory to use as custom sandbox base
         let temp_dir = tempfile::tempdir().unwrap();
         let custom_path = temp_dir.path().to_path_buf();
@@ -690,14 +718,31 @@ mod tests {
             "Sandbox directory should exist"
         );
 
-        // Clean up
+        // Clean up sandbox (env will be restored by guard)
         client.kill_sandbox().await.unwrap();
-        std::env::remove_var("ZEROBUILD_SANDBOX_PATH");
     }
 
     #[tokio::test]
     async fn sandbox_path_falls_back_to_default_when_env_not_set() {
-        // Ensure env var is not set
+        // Serialize tests that mutate environment variables
+        let _guard = ENV_MUTEX.lock().unwrap();
+
+        // Save original env state
+        let original_env = std::env::var_os("ZEROBUILD_SANDBOX_PATH");
+
+        // Cleanup guard - ensures env is restored even on panic
+        struct EnvGuard(Option<OsString>);
+        impl Drop for EnvGuard {
+            fn drop(&mut self) {
+                match &self.0 {
+                    Some(val) => std::env::set_var("ZEROBUILD_SANDBOX_PATH", val),
+                    None => std::env::remove_var("ZEROBUILD_SANDBOX_PATH"),
+                }
+            }
+        }
+        let _env_guard = EnvGuard(original_env);
+
+        // Ensure env var is not set for this test
         std::env::remove_var("ZEROBUILD_SANDBOX_PATH");
 
         let client = LocalProcessSandboxClient::new();
@@ -726,12 +771,30 @@ mod tests {
             "Sandbox directory should exist"
         );
 
-        // Clean up
+        // Clean up sandbox (env will be restored by guard)
         client.kill_sandbox().await.unwrap();
     }
 
     #[tokio::test]
     async fn sandbox_path_rejects_empty_env_var() {
+        // Serialize tests that mutate environment variables
+        let _guard = ENV_MUTEX.lock().unwrap();
+
+        // Save original env state
+        let original_env = std::env::var_os("ZEROBUILD_SANDBOX_PATH");
+
+        // Cleanup guard - ensures env is restored even on panic
+        struct EnvGuard(Option<OsString>);
+        impl Drop for EnvGuard {
+            fn drop(&mut self) {
+                match &self.0 {
+                    Some(val) => std::env::set_var("ZEROBUILD_SANDBOX_PATH", val),
+                    None => std::env::remove_var("ZEROBUILD_SANDBOX_PATH"),
+                }
+            }
+        }
+        let _env_guard = EnvGuard(original_env);
+
         // Set empty environment variable
         std::env::set_var("ZEROBUILD_SANDBOX_PATH", "");
 
@@ -750,11 +813,29 @@ mod tests {
             err
         );
 
-        std::env::remove_var("ZEROBUILD_SANDBOX_PATH");
+        // Env will be restored by guard
     }
 
     #[tokio::test]
     async fn sandbox_path_rejects_relative_path() {
+        // Serialize tests that mutate environment variables
+        let _guard = ENV_MUTEX.lock().unwrap();
+
+        // Save original env state
+        let original_env = std::env::var_os("ZEROBUILD_SANDBOX_PATH");
+
+        // Cleanup guard - ensures env is restored even on panic
+        struct EnvGuard(Option<OsString>);
+        impl Drop for EnvGuard {
+            fn drop(&mut self) {
+                match &self.0 {
+                    Some(val) => std::env::set_var("ZEROBUILD_SANDBOX_PATH", val),
+                    None => std::env::remove_var("ZEROBUILD_SANDBOX_PATH"),
+                }
+            }
+        }
+        let _env_guard = EnvGuard(original_env);
+
         // Set a relative path
         std::env::set_var("ZEROBUILD_SANDBOX_PATH", "relative/path/to/sandbox");
 
@@ -773,11 +854,29 @@ mod tests {
             err
         );
 
-        std::env::remove_var("ZEROBUILD_SANDBOX_PATH");
+        // Env will be restored by guard
     }
 
     #[tokio::test]
     async fn sandbox_path_rejects_parent_traversal() {
+        // Serialize tests that mutate environment variables
+        let _guard = ENV_MUTEX.lock().unwrap();
+
+        // Save original env state
+        let original_env = std::env::var_os("ZEROBUILD_SANDBOX_PATH");
+
+        // Cleanup guard - ensures env is restored even on panic
+        struct EnvGuard(Option<OsString>);
+        impl Drop for EnvGuard {
+            fn drop(&mut self) {
+                match &self.0 {
+                    Some(val) => std::env::set_var("ZEROBUILD_SANDBOX_PATH", val),
+                    None => std::env::remove_var("ZEROBUILD_SANDBOX_PATH"),
+                }
+            }
+        }
+        let _env_guard = EnvGuard(original_env);
+
         // Set a path with parent directory traversal
         std::env::set_var("ZEROBUILD_SANDBOX_PATH", "/tmp/../etc/sandbox");
 
@@ -796,6 +895,6 @@ mod tests {
             err
         );
 
-        std::env::remove_var("ZEROBUILD_SANDBOX_PATH");
+        // Env will be restored by guard
     }
 }

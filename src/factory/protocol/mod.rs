@@ -107,7 +107,8 @@ impl MessageHeader {
     pub fn is_expired(&self) -> bool {
         if let Some(ttl) = self.ttl_seconds {
             let elapsed = Utc::now().signed_duration_since(self.timestamp);
-            elapsed.num_seconds() > ttl as i64
+            // Check milliseconds to handle sub-second TTLs correctly
+            elapsed.num_milliseconds() > (ttl as i64 * 1000)
         } else {
             false
         }

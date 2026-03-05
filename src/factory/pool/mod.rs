@@ -230,7 +230,15 @@ impl AgentPool {
         }
 
         // Need to create a new agent
-        self.create_agent(role, agent_config).await
+        let id = self.create_agent(role, agent_config).await?;
+
+        // Mark the newly created agent as busy since it's being acquired
+        if let Some(entry) = self.agents.get(&id) {
+            let mut agent = entry.lock();
+            agent.start_task();
+        }
+
+        Ok(id)
     }
 
     /// Release an agent back to the pool

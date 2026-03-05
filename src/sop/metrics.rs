@@ -137,13 +137,8 @@ impl SopMetricsCollector {
             warn!("SOP metrics collector lock poisoned in record_approval");
             return;
         };
-        state.global.counters.human_approvals += 1;
-        state
-            .per_sop
-            .entry(sop_name.to_string())
-            .or_default()
-            .counters
-            .human_approvals += 1;
+        // Note: Global counters are updated in apply_run when the run completes
+        // This ensures consistency between all-time and windowed metrics
         let entry = state
             .pending_approvals
             .entry(run_id.to_string())
@@ -160,13 +155,8 @@ impl SopMetricsCollector {
             warn!("SOP metrics collector lock poisoned in record_timeout_auto_approve");
             return;
         };
-        state.global.counters.timeout_auto_approvals += 1;
-        state
-            .per_sop
-            .entry(sop_name.to_string())
-            .or_default()
-            .counters
-            .timeout_auto_approvals += 1;
+        // Note: Global counters are updated in apply_run when the run completes
+        // This ensures consistency between all-time and windowed metrics
         let entry = state
             .pending_timeout_approvals
             .entry(run_id.to_string())
@@ -235,27 +225,34 @@ impl SopMetricsCollector {
             apply_run(counters, &snapshot);
         }
 
-        // All-time approval counters: count every approval event
+        // Count all approvals for all-time metrics (including non-terminal runs)
+        // This ensures warm-start preserves approval counts for runs that haven't completed yet
         for (run_id, count) in &approval_counts {
-            state.global.counters.human_approvals += count;
-            if let Some(sop_name) = approval_sop_names.get(run_id) {
-                state
-                    .per_sop
-                    .entry(sop_name.clone())
-                    .or_default()
-                    .counters
-                    .human_approvals += count;
+            // Skip if already counted via apply_run (terminal runs)
+            if !runs.contains_key(run_id) {
+                state.global.counters.human_approvals += count;
+                if let Some(sop_name) = approval_sop_names.get(run_id) {
+                    state
+                        .per_sop
+                        .entry(sop_name.clone())
+                        .or_default()
+                        .counters
+                        .human_approvals += count;
+                }
             }
         }
         for (run_id, count) in &timeout_counts {
-            state.global.counters.timeout_auto_approvals += count;
-            if let Some(sop_name) = approval_sop_names.get(run_id) {
-                state
-                    .per_sop
-                    .entry(sop_name.clone())
-                    .or_default()
-                    .counters
-                    .timeout_auto_approvals += count;
+            // Skip if already counted via apply_run (terminal runs)
+            if !runs.contains_key(run_id) {
+                state.global.counters.timeout_auto_approvals += count;
+                if let Some(sop_name) = approval_sop_names.get(run_id) {
+                    state
+                        .per_sop
+                        .entry(sop_name.clone())
+                        .or_default()
+                        .counters
+                        .timeout_auto_approvals += count;
+                }
             }
         }
 
@@ -486,6 +483,8 @@ fn apply_run(sop: &mut SopCounters, snap: &RunSnapshot) {
     c.steps_defined += snap.steps_defined;
     c.steps_failed += snap.steps_failed;
     c.steps_skipped += snap.steps_skipped;
+    c.human_approvals += snap.human_approval_count;
+    c.timeout_auto_approvals += snap.timeout_approval_count;
 
     sop.recent_runs.push_back(snap.clone());
     if sop.recent_runs.len() > MAX_RECENT_RUNS {
@@ -637,6 +636,11 @@ mod tests {
         total_steps: u32,
         step_results: Vec<SopStepResult>,
     ) -> SopRun {
+        // Use current timestamp to ensure tests work regardless of when they're run
+        let now = Utc::now();
+        let started_at = now - chrono::Duration::minutes(5);
+        let completed_at = now;
+
         SopRun {
             run_id: run_id.into(),
             sop_name: sop_name.into(),
@@ -644,8 +648,8 @@ mod tests {
             status,
             current_step: total_steps,
             total_steps,
-            started_at: "2026-02-19T12:00:00Z".into(),
-            completed_at: Some("2026-02-19T12:05:00Z".into()),
+            started_at: started_at.to_rfc3339(),
+            completed_at: Some(completed_at.to_rfc3339()),
             step_results,
             waiting_since: None,
         }

@@ -629,7 +629,7 @@ mod tests {
     #[test]
     fn allowlist_supports_wildcards() {
         let ch = GitHubChannel::new("t".into(), None, vec!["PotLock/*".into()]);
-        assert!(ch.repo_is_allowed("louisdevzz/zerobuild"));
+        assert!(ch.repo_is_allowed("PotLock/zerobuild"));
         assert!(!ch.repo_is_allowed("other/repo"));
         let all = GitHubChannel::new("t".into(), None, vec!["*".into()]);
         assert!(all.repo_is_allowed("anything/repo"));

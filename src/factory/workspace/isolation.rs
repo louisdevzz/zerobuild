@@ -364,6 +364,8 @@ mod tests {
 
         // Path within workspace should be allowed
         let valid_path = isolation.resolve_sandbox_path("test.txt");
+        // Create the file so canonicalize() works
+        std::fs::write(&valid_path, "test content").unwrap();
         assert!(isolation.is_path_allowed(&valid_path));
 
         // Path outside workspace should be denied

@@ -2798,7 +2798,7 @@ mod tests {
             .parse_update_message(&update)
             .expect("message should parse");
 
-        assert_eq!(msg.sender, "alice");
+        assert_eq!(msg.sender, "-100200300");
         assert_eq!(msg.reply_target, "-100200300");
         assert_eq!(msg.content, "hello");
         assert_eq!(msg.id, "telegram_-100200300_33");
@@ -2825,7 +2825,7 @@ mod tests {
             .parse_update_message(&update)
             .expect("numeric allowlist should pass");
 
-        assert_eq!(msg.sender, "555");
+        assert_eq!(msg.sender, "12345");
         assert_eq!(msg.reply_target, "12345");
     }
 
@@ -2852,7 +2852,7 @@ mod tests {
             .parse_update_message(&update)
             .expect("message with thread_id should parse");
 
-        assert_eq!(msg.sender, "alice");
+        assert_eq!(msg.sender, "-100200300");
         assert_eq!(msg.reply_target, "-100200300:789");
         assert_eq!(msg.content, "hello from topic");
         assert_eq!(msg.id, "telegram_-100200300_42");

@@ -6008,6 +6008,7 @@ mod tests {
 
     #[tokio::test]
     async fn quick_setup_model_override_persists_to_config_toml() {
+        let _env_guard = env_lock().lock().unwrap();
         let tmp = TempDir::new().unwrap();
 
         let config = run_quick_setup_with_home(
@@ -6052,6 +6053,7 @@ mod tests {
 
     #[tokio::test]
     async fn quick_setup_existing_config_requires_force_when_non_interactive() {
+        let _env_guard = env_lock().lock().unwrap();
         let tmp = TempDir::new().unwrap();
         let zerobuild_dir = tmp.path().join(".zerobuild");
         let config_path = zerobuild_dir.join("config.toml");
@@ -6079,6 +6081,7 @@ mod tests {
 
     #[tokio::test]
     async fn quick_setup_existing_config_overwrites_with_force() {
+        let _env_guard = env_lock().lock().unwrap();
         let tmp = TempDir::new().unwrap();
         let zerobuild_dir = tmp.path().join(".zerobuild");
         let config_path = zerobuild_dir.join("config.toml");

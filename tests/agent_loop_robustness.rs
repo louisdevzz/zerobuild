@@ -199,6 +199,7 @@ fn tool_response(calls: Vec<ToolCall>) -> ChatResponse {
 }
 
 fn build_agent(provider: Box<dyn Provider>, tools: Vec<Box<dyn Tool>>) -> Agent {
+    use zerobuild::config::AgentConfig;
     Agent::builder()
         .provider(provider)
         .tools(tools)
@@ -206,6 +207,10 @@ fn build_agent(provider: Box<dyn Provider>, tools: Vec<Box<dyn Tool>>) -> Agent 
         .observer(make_observer())
         .tool_dispatcher(Box::new(NativeToolDispatcher))
         .workspace_dir(std::env::temp_dir())
+        .config(AgentConfig {
+            max_tool_iterations: 10,
+            ..AgentConfig::default()
+        })
         .build()
         .unwrap()
 }

@@ -1,9 +1,10 @@
-//! Local process sandbox provider — runs commands in an isolated temp directory.
+//! Local process sandbox provider — runs commands in an isolated directory.
 //!
-//! No external API key or Docker daemon required. Creates a temporary directory
-//! under `$TMPDIR/zerobuild-sandbox-{uuid}/`, runs commands via
-//! `tokio::process::Command` with a restricted environment, and constrains all
-//! file operations to the sandbox directory (rejects `..` path components).
+//! No external API key or Docker daemon required. Creates a sandbox directory
+//! under `~/.zerobuild/workspace/sandbox/zerobuild-sandbox-{uuid}/` (or custom
+//! path via `$ZEROBUILD_SANDBOX_PATH`), runs commands via `tokio::process::Command`
+//! with a restricted environment, and constrains all file operations to the
+//! sandbox directory (rejects `..` path components).
 //!
 //! **Isolation model:**
 //! - Filesystem: path-constrained to sandbox dir; `..` components are rejected.
@@ -21,7 +22,9 @@ use super::{CommandOutput, PackageManager, SandboxClient};
 use anyhow::Context as _;
 use async_trait::async_trait;
 use parking_lot::Mutex;
+
 use std::collections::HashMap;
+use std::ffi::OsString;
 use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 use uuid::Uuid;
@@ -124,11 +127,49 @@ impl SandboxClient for LocalProcessSandboxClient {
         }
         *self.sandbox_id.lock() = None;
 
-        // Create new sandbox dir: $TMPDIR/zerobuild-sandbox-{uuid}/
-        let tmp_base = std::env::temp_dir();
-        let sandbox_dir = tmp_base.join(format!("zerobuild-sandbox-{}", Uuid::new_v4()));
-        std::fs::create_dir_all(&sandbox_dir)
-            .map_err(|e| anyhow::anyhow!("Failed to create sandbox dir: {e}"))?;
+        // Determine sandbox base directory
+        // Priority: $ZEROBUILD_SANDBOX_PATH > ~/.zerobuild/workspace/sandbox/
+        let sandbox_base = if let Ok(custom_path) = std::env::var("ZEROBUILD_SANDBOX_PATH") {
+            // Validate custom path
+            if custom_path.is_empty() {
+                anyhow::bail!("ZEROBUILD_SANDBOX_PATH environment variable is set but empty");
+            }
+            let path = PathBuf::from(&custom_path);
+            // Reject relative paths - require absolute paths
+            if !path.is_absolute() {
+                anyhow::bail!(
+                    "ZEROBUILD_SANDBOX_PATH must be an absolute path, got: {}",
+                    custom_path
+                );
+            }
+            // Reject paths containing parent directory traversal (..)
+            if path.components().any(|c| matches!(c, Component::ParentDir)) {
+                anyhow::bail!(
+                    "ZEROBUILD_SANDBOX_PATH contains parent directory traversal (..): {}",
+                    custom_path
+                );
+            }
+            path
+        } else {
+            // Default to ~/.zerobuild/workspace/sandbox/
+            let home = std::env::var("HOME")
+                .or_else(|_| std::env::var("USERPROFILE"))
+                .map_err(|_| anyhow::anyhow!("Unable to determine home directory"))?;
+            PathBuf::from(home)
+                .join(".zerobuild")
+                .join("workspace")
+                .join("sandbox")
+        };
+
+        // Create new sandbox dir: {sandbox_base}/zerobuild-sandbox-{uuid}/
+        let sandbox_dir = sandbox_base.join(format!("zerobuild-sandbox-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&sandbox_dir).map_err(|e| {
+            anyhow::anyhow!(
+                "Failed to create sandbox dir at {}: {}",
+                sandbox_dir.display(),
+                e
+            )
+        })?;
 
         // Pre-create sub-directories used for npm cache redirection
         for sub in &[".npm-cache", ".npm-global", "tmp"] {
@@ -475,6 +516,11 @@ fn collect_files_recursive(base: &Path, dir: &Path, out: &mut HashMap<String, St
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex;
+
+    // Mutex to serialize tests that mutate ZEROBUILD_SANDBOX_PATH
+    // Use std::sync::Mutex for test synchronization (parking_lot::Mutex doesn't work well with test isolation)
+    static ENV_MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
     #[test]
     fn safe_join_normal_path() {
@@ -559,6 +605,9 @@ mod tests {
 
     #[tokio::test]
     async fn write_and_read_file() {
+        // Serialize with env var tests to avoid interference
+        let _guard = ENV_MUTEX.lock().unwrap();
+
         let client = LocalProcessSandboxClient::new();
         client.create_sandbox(false, "", 30_000).await.unwrap();
         client
@@ -616,5 +665,236 @@ mod tests {
         let client = LocalProcessSandboxClient::new();
         let url = client.get_preview_url(3000).await.unwrap();
         assert_eq!(url, "http://localhost:3000");
+    }
+
+    // Tests for sandbox path selection logic (ZEROBUILD_SANDBOX_PATH validation)
+
+    #[tokio::test]
+    async fn sandbox_path_uses_custom_absolute_path_from_env() {
+        // Serialize tests that mutate environment variables
+        let _guard = ENV_MUTEX.lock().unwrap();
+
+        // Save original env state
+        let original_env = std::env::var_os("ZEROBUILD_SANDBOX_PATH");
+
+        // Cleanup guard - ensures env is restored even on panic
+        struct EnvGuard(Option<OsString>);
+        impl Drop for EnvGuard {
+            fn drop(&mut self) {
+                match &self.0 {
+                    Some(val) => std::env::set_var("ZEROBUILD_SANDBOX_PATH", val),
+                    None => std::env::remove_var("ZEROBUILD_SANDBOX_PATH"),
+                }
+            }
+        }
+        let _env_guard = EnvGuard(original_env);
+
+        // Create a temporary directory to use as custom sandbox base
+        let temp_dir = tempfile::tempdir().unwrap();
+        let custom_path = temp_dir.path().to_path_buf();
+
+        // Set the environment variable
+        std::env::set_var("ZEROBUILD_SANDBOX_PATH", custom_path.as_os_str());
+
+        let client = LocalProcessSandboxClient::new();
+        let id = client.create_sandbox(false, "", 30_000).await.unwrap();
+
+        // Verify sandbox was created under the custom path
+        let custom_path_str = custom_path
+            .to_str()
+            .expect("custom path should be valid UTF-8");
+        assert!(
+            id.starts_with(custom_path_str),
+            "Sandbox should be under custom path: {}",
+            id
+        );
+        assert!(
+            id.contains("zerobuild-sandbox-"),
+            "Sandbox dir should contain 'zerobuild-sandbox-': {}",
+            id
+        );
+        assert!(
+            std::path::Path::new(&id).exists(),
+            "Sandbox directory should exist"
+        );
+
+        // Clean up sandbox (env will be restored by guard)
+        client.kill_sandbox().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn sandbox_path_falls_back_to_default_when_env_not_set() {
+        // Serialize tests that mutate environment variables
+        let _guard = ENV_MUTEX.lock().unwrap();
+
+        // Save original env state
+        let original_env = std::env::var_os("ZEROBUILD_SANDBOX_PATH");
+
+        // Cleanup guard - ensures env is restored even on panic
+        struct EnvGuard(Option<OsString>);
+        impl Drop for EnvGuard {
+            fn drop(&mut self) {
+                match &self.0 {
+                    Some(val) => std::env::set_var("ZEROBUILD_SANDBOX_PATH", val),
+                    None => std::env::remove_var("ZEROBUILD_SANDBOX_PATH"),
+                }
+            }
+        }
+        let _env_guard = EnvGuard(original_env);
+
+        // Ensure env var is not set for this test
+        std::env::remove_var("ZEROBUILD_SANDBOX_PATH");
+
+        let client = LocalProcessSandboxClient::new();
+        let id = client.create_sandbox(false, "", 30_000).await.unwrap();
+
+        // Verify sandbox was created under default location (~/.zerobuild/workspace/sandbox/)
+        let home = std::env::var("HOME")
+            .or_else(|_| std::env::var("USERPROFILE"))
+            .expect("HOME or USERPROFILE should be set");
+        let expected_base = std::path::PathBuf::from(home)
+            .join(".zerobuild")
+            .join("workspace")
+            .join("sandbox");
+
+        let expected_base_str = expected_base
+            .to_str()
+            .expect("expected base should be valid UTF-8");
+        assert!(
+            id.starts_with(expected_base_str),
+            "Sandbox should be under default path {} but got: {}",
+            expected_base.display(),
+            id
+        );
+        assert!(
+            std::path::Path::new(&id).exists(),
+            "Sandbox directory should exist"
+        );
+
+        // Clean up sandbox (env will be restored by guard)
+        client.kill_sandbox().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn sandbox_path_rejects_empty_env_var() {
+        // Serialize tests that mutate environment variables
+        let _guard = ENV_MUTEX.lock().unwrap();
+
+        // Save original env state
+        let original_env = std::env::var_os("ZEROBUILD_SANDBOX_PATH");
+
+        // Cleanup guard - ensures env is restored even on panic
+        struct EnvGuard(Option<OsString>);
+        impl Drop for EnvGuard {
+            fn drop(&mut self) {
+                match &self.0 {
+                    Some(val) => std::env::set_var("ZEROBUILD_SANDBOX_PATH", val),
+                    None => std::env::remove_var("ZEROBUILD_SANDBOX_PATH"),
+                }
+            }
+        }
+        let _env_guard = EnvGuard(original_env);
+
+        // Set empty environment variable
+        std::env::set_var("ZEROBUILD_SANDBOX_PATH", "");
+
+        let client = LocalProcessSandboxClient::new();
+        let result = client.create_sandbox(false, "", 30_000).await;
+
+        // Should fail with error about empty path
+        assert!(
+            result.is_err(),
+            "Should fail when ZEROBUILD_SANDBOX_PATH is empty"
+        );
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("empty"),
+            "Error should mention empty variable: {}",
+            err
+        );
+
+        // Env will be restored by guard
+    }
+
+    #[tokio::test]
+    async fn sandbox_path_rejects_relative_path() {
+        // Serialize tests that mutate environment variables
+        let _guard = ENV_MUTEX.lock().unwrap();
+
+        // Save original env state
+        let original_env = std::env::var_os("ZEROBUILD_SANDBOX_PATH");
+
+        // Cleanup guard - ensures env is restored even on panic
+        struct EnvGuard(Option<OsString>);
+        impl Drop for EnvGuard {
+            fn drop(&mut self) {
+                match &self.0 {
+                    Some(val) => std::env::set_var("ZEROBUILD_SANDBOX_PATH", val),
+                    None => std::env::remove_var("ZEROBUILD_SANDBOX_PATH"),
+                }
+            }
+        }
+        let _env_guard = EnvGuard(original_env);
+
+        // Set a relative path
+        std::env::set_var("ZEROBUILD_SANDBOX_PATH", "relative/path/to/sandbox");
+
+        let client = LocalProcessSandboxClient::new();
+        let result = client.create_sandbox(false, "", 30_000).await;
+
+        // Should fail with error about relative path
+        assert!(
+            result.is_err(),
+            "Should fail when ZEROBUILD_SANDBOX_PATH is relative"
+        );
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("absolute"),
+            "Error should mention absolute path requirement: {}",
+            err
+        );
+
+        // Env will be restored by guard
+    }
+
+    #[tokio::test]
+    async fn sandbox_path_rejects_parent_traversal() {
+        // Serialize tests that mutate environment variables
+        let _guard = ENV_MUTEX.lock().unwrap();
+
+        // Save original env state
+        let original_env = std::env::var_os("ZEROBUILD_SANDBOX_PATH");
+
+        // Cleanup guard - ensures env is restored even on panic
+        struct EnvGuard(Option<OsString>);
+        impl Drop for EnvGuard {
+            fn drop(&mut self) {
+                match &self.0 {
+                    Some(val) => std::env::set_var("ZEROBUILD_SANDBOX_PATH", val),
+                    None => std::env::remove_var("ZEROBUILD_SANDBOX_PATH"),
+                }
+            }
+        }
+        let _env_guard = EnvGuard(original_env);
+
+        // Set a path with parent directory traversal
+        std::env::set_var("ZEROBUILD_SANDBOX_PATH", "/tmp/../etc/sandbox");
+
+        let client = LocalProcessSandboxClient::new();
+        let result = client.create_sandbox(false, "", 30_000).await;
+
+        // Should fail with error about parent traversal
+        assert!(
+            result.is_err(),
+            "Should fail when ZEROBUILD_SANDBOX_PATH contains .."
+        );
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("parent directory traversal") || err.contains(".."),
+            "Error should mention parent directory traversal: {}",
+            err
+        );
+
+        // Env will be restored by guard
     }
 }

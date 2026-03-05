@@ -500,16 +500,28 @@ impl Agent {
 
         // Present plan to user
         let plan_text = plan_lines.join("\n");
-        print!("\n{}", plan_text);
+
+        // Always print plan for visibility
+        println!("\n{}", plan_text);
         let _ = std::io::stdout().flush();
 
-        // Get user confirmation
-        let mut input = String::new();
-        std::io::stdin()
-            .read_line(&mut input)
-            .map_err(|e| anyhow::anyhow!("Failed to read user input: {e}"))?;
-
-        let confirmed = matches!(input.trim().to_lowercase().as_str(), "y" | "yes");
+        // Get user confirmation (only in interactive CLI mode)
+        let confirmed = if atty::is(atty::Stream::Stdin) {
+            // Interactive mode - read from stdin
+            let mut input = String::new();
+            match std::io::stdin().read_line(&mut input) {
+                Ok(_) => matches!(input.trim().to_lowercase().as_str(), "y" | "yes"),
+                Err(e) => {
+                    tracing::warn!("Failed to read user input: {}, auto-approving", e);
+                    true
+                }
+            }
+        } else {
+            // Non-interactive mode (Docker, CI, etc.) - auto-approve
+            tracing::info!("Non-interactive mode detected, auto-approving plan");
+            println!("(Auto-approved for non-interactive environment)");
+            true
+        };
 
         if confirmed {
             // Add plan to history
